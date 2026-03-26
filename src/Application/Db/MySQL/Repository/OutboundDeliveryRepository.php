@@ -20,8 +20,12 @@ final class OutboundDeliveryRepository extends AbstractRepository implements Out
         return WebhookOutboxResource::class;
     }
 
-    public function findById(string $id): ?OutboundDelivery
+    public function findById(int|string $id): ?OutboundDelivery
     {
+        if (is_int($id)) {
+            $id = (string) $id;
+        }
+
         /** @var OutboundDelivery|null */
         return $this->select()
             ->where($this->getPkColumn(), '=', $this->normalizeId($id))
