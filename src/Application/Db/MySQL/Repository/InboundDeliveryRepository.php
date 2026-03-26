@@ -27,7 +27,7 @@ final class InboundDeliveryRepository extends AbstractRepository implements Inbo
             ->fetchOne();
     }
 
-    public function save(InboundDelivery $delivery): void
+    public function save(object $delivery): void
     {
         parent::save($delivery);
     }

@@ -28,7 +28,7 @@ final class OutboundDeliveryRepository extends AbstractRepository implements Out
             ->fetchOne();
     }
 
-    public function save(OutboundDelivery $delivery): void
+    public function save(object $delivery): void
     {
         parent::save($delivery);
     }

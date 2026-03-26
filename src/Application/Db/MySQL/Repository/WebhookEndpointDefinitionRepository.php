@@ -18,7 +18,7 @@ final class WebhookEndpointDefinitionRepository extends AbstractRepository imple
         return WebhookEndpointDefinitionResource::class;
     }
 
-    public function findById(string $id): ?WebhookEndpointDefinition
+    public function findById(int|string $id): ?WebhookEndpointDefinition
     {
         /** @var WebhookEndpointDefinition|null */
         return $this->select()
@@ -34,12 +34,12 @@ final class WebhookEndpointDefinitionRepository extends AbstractRepository imple
             ->fetchOne();
     }
 
-    public function save(WebhookEndpointDefinition $definition): void
+    public function save(object $definition): void
     {
         parent::save($definition);
     }
 
-    public function findAll(): array
+    public function findAll(int $limit = 1000): array
     {
         /** @var list<WebhookEndpointDefinition> */
         return $this->select()

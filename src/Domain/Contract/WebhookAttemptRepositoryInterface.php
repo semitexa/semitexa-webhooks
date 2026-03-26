@@ -8,7 +8,10 @@ use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
 
 interface WebhookAttemptRepositoryInterface
 {
-    public function save(WebhookAttempt $attempt): void;
+    /**
+     * @param WebhookAttempt $entity
+     */
+    public function save(object $entity): void;
 
     /** @return list<WebhookAttempt> */
     public function findByInboxId(string $inboxId): array;

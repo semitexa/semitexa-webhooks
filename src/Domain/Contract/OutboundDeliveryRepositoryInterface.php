@@ -10,7 +10,10 @@ interface OutboundDeliveryRepositoryInterface
 {
     public function findById(string $id): ?OutboundDelivery;
 
-    public function save(OutboundDelivery $delivery): void;
+    /**
+     * @param OutboundDelivery $entity
+     */
+    public function save(object $entity): void;
 
     /**
      * Atomic claim-and-lease: finds a due row (pending/retry_scheduled, next_attempt_at <= now,
