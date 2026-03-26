@@ -19,7 +19,7 @@ final class InboundDeliveryRepository extends AbstractRepository implements Inbo
         return WebhookInboxResource::class;
     }
 
-    public function findById(int|string $id): ?InboundDelivery
+    public function findById(string $id): ?InboundDelivery
     {
         /** @var InboundDelivery|null */
         return $this->select()

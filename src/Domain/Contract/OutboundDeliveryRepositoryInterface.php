@@ -10,6 +10,9 @@ interface OutboundDeliveryRepositoryInterface
 {
     public function findById(string $id): ?OutboundDelivery;
 
+    /**
+     * @param OutboundDelivery $entity
+     */
     public function save(object $entity): void;
 
     /**

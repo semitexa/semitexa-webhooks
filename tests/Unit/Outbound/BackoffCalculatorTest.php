@@ -18,12 +18,10 @@ final class BackoffCalculatorTest extends TestCase
 
     public function testFirstAttemptReturnsBaseDelay(): void
     {
-        // attemptCount=0 returns initialBackoffSeconds (with jitter)
+        // attemptCount=0 returns initialBackoffSeconds without jitter
         $delay = $this->calculator->calculate(0, initialBackoffSeconds: 30);
 
-        // With ±25% jitter: 30 ± 7 = [23, 37]
-        self::assertGreaterThanOrEqual(1, $delay);
-        self::assertLessThanOrEqual(37, $delay);
+        self::assertSame(30, $delay);
     }
 
     public function testExponentialGrowth(): void

@@ -10,6 +10,9 @@ interface InboundDeliveryRepositoryInterface
 {
     public function findById(string $id): ?InboundDelivery;
 
+    /**
+     * @param InboundDelivery $entity
+     */
     public function save(object $entity): void;
 
     /**

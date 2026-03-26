@@ -8,6 +8,9 @@ use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
 
 interface WebhookAttemptRepositoryInterface
 {
+    /**
+     * @param WebhookAttempt $entity
+     */
     public function save(object $entity): void;
 
     /** @return list<WebhookAttempt> */
