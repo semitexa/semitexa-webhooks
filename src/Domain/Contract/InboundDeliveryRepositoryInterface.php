@@ -10,7 +10,7 @@ interface InboundDeliveryRepositoryInterface
 {
     public function findById(string $id): ?InboundDelivery;
 
-    public function save(InboundDelivery $delivery): void;
+    public function save(object $entity): void;
 
     /**
      * Atomic insert-or-match: inserts a new row if dedupe_key is unique,

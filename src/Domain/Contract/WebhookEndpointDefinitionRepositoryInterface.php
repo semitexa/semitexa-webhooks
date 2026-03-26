@@ -12,7 +12,7 @@ interface WebhookEndpointDefinitionRepositoryInterface
 
     public function findByEndpointKey(string $endpointKey): ?WebhookEndpointDefinition;
 
-    public function save(WebhookEndpointDefinition $definition): void;
+    public function save(object $entity): void;
 
     /** @return list<WebhookEndpointDefinition> */
     public function findAll(): array;

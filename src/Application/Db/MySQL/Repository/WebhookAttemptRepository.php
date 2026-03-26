@@ -19,7 +19,7 @@ final class WebhookAttemptRepository extends AbstractRepository implements Webho
         return WebhookAttemptResource::class;
     }
 
-    public function save(WebhookAttempt $attempt): void
+    public function save(object $attempt): void
     {
         parent::save($attempt);
     }

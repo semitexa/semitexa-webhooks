@@ -20,7 +20,7 @@ final class OutboundDeliveryRepository extends AbstractRepository implements Out
         return WebhookOutboxResource::class;
     }
 
-    public function findById(string $id): ?OutboundDelivery
+    public function findById(int|string $id): ?OutboundDelivery
     {
         /** @var OutboundDelivery|null */
         return $this->select()
@@ -28,7 +28,7 @@ final class OutboundDeliveryRepository extends AbstractRepository implements Out
             ->fetchOne();
     }
 
-    public function save(OutboundDelivery $delivery): void
+    public function save(object $delivery): void
     {
         parent::save($delivery);
     }
