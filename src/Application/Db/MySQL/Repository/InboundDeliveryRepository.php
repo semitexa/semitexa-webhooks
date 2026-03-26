@@ -21,8 +21,8 @@ final class InboundDeliveryRepository extends AbstractRepository implements Inbo
 
     public function findById(int|string $id): ?InboundDelivery
     {
-        if (!is_string($id)) {
-            return null;
+        if (is_int($id)) {
+            $id = (string) $id;
         }
 
         /** @var InboundDelivery|null */

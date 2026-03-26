@@ -22,8 +22,8 @@ final class OutboundDeliveryRepository extends AbstractRepository implements Out
 
     public function findById(int|string $id): ?OutboundDelivery
     {
-        if (!is_string($id)) {
-            return null;
+        if (is_int($id)) {
+            $id = (string) $id;
         }
 
         /** @var OutboundDelivery|null */
