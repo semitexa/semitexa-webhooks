@@ -4,36 +4,42 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Db\MySQL\Repository;
 
+use Semitexa\Core\Attributes\InjectAsReadonly;
 use Semitexa\Core\Attributes\SatisfiesRepositoryContract;
-use Semitexa\Orm\Repository\AbstractRepository;
-use Semitexa\Orm\Uuid\Uuid7;
-use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookInboxResource;
+use Semitexa\Orm\OrmManager;
+use Semitexa\Orm\Query\Direction;
+use Semitexa\Orm\Query\Operator;
+use Semitexa\Orm\Repository\DomainRepository;
+use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookInboxTableModel;
 use Semitexa\Webhooks\Domain\Contract\InboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Model\InboundDelivery;
 
 #[SatisfiesRepositoryContract(of: InboundDeliveryRepositoryInterface::class)]
-final class InboundDeliveryRepository extends AbstractRepository implements InboundDeliveryRepositoryInterface
+final class InboundDeliveryRepository implements InboundDeliveryRepositoryInterface
 {
-    protected function getResourceClass(): string
+    #[InjectAsReadonly]
+    protected ?OrmManager $orm = null;
+
+    private ?DomainRepository $repository = null;
+
+    public function findById(string $id): ?InboundDelivery
     {
-        return WebhookInboxResource::class;
+        /** @var InboundDelivery|null */
+        return $this->repository()->findById($id);
     }
 
-    public function findById(int|string $id): ?InboundDelivery
+    public function save(object $entity): void
     {
-        if (is_int($id)) {
-            $id = (string) $id;
+        if (!$entity instanceof InboundDelivery) {
+            throw new \InvalidArgumentException(sprintf('Expected %s, got %s.', InboundDelivery::class, $entity::class));
         }
 
-        /** @var InboundDelivery|null */
-        return $this->select()
-            ->where($this->getPkColumn(), '=', $this->normalizeId($id))
-            ->fetchOne();
-    }
+        if ($this->findById($entity->getId()) === null) {
+            $this->repository()->insert($entity);
+            return;
+        }
 
-    public function save(object $delivery): void
-    {
-        parent::save($delivery);
+        $this->repository()->update($entity);
     }
 
     public function insertOrMatchDedupe(InboundDelivery $delivery): InboundDelivery
@@ -42,45 +48,58 @@ final class InboundDeliveryRepository extends AbstractRepository implements Inbo
 
         if ($existing !== null) {
             $existing->markDuplicateIgnored();
-            $this->save($existing);
+            $this->repository()->update($existing);
+
             return $existing;
         }
 
-        $this->save($delivery);
-        return $delivery;
+        /** @var InboundDelivery */
+        return $this->repository()->insert($delivery);
     }
 
     public function findByDedupeKey(string $dedupeKey): ?InboundDelivery
     {
         /** @var InboundDelivery|null */
-        return $this->select()
-            ->where('dedupe_key', '=', $dedupeKey)
-            ->fetchOne();
+        return $this->repository()->query()
+            ->where(WebhookInboxTableModel::column('dedupeKey'), Operator::Equals, $dedupeKey)
+            ->fetchOneAs(InboundDelivery::class, $this->orm()->getMapperRegistry());
     }
 
     public function findByStatus(string $status, int $limit = 50): array
     {
         /** @var list<InboundDelivery> */
-        return $this->select()
-            ->where('status', '=', $status)
-            ->orderBy('last_received_at', 'ASC')
+        return $this->repository()->query()
+            ->where(WebhookInboxTableModel::column('status'), Operator::Equals, $status)
+            ->orderBy(WebhookInboxTableModel::column('lastReceivedAt'), Direction::Asc)
             ->limit($limit)
-            ->fetchAll();
+            ->fetchAllAs(InboundDelivery::class, $this->orm()->getMapperRegistry());
     }
 
     public function deleteOlderThan(\DateTimeImmutable $cutoff): int
     {
-        return $this->delete()
-            ->where('created_at', '<', $cutoff->format('Y-m-d H:i:s.u'))
-            ->execute();
+        $result = $this->adapter()->execute(
+            'DELETE FROM webhook_inbox WHERE created_at < :cutoff',
+            ['cutoff' => $cutoff->format('Y-m-d H:i:s.u')],
+        );
+
+        return $result->rowCount;
     }
 
-    private function normalizeId(string $id): string
+    private function repository(): DomainRepository
     {
-        if (strlen($id) === 36 && str_contains($id, '-')) {
-            return Uuid7::toBytes($id);
-        }
+        return $this->repository ??= $this->orm()->repository(
+            WebhookInboxTableModel::class,
+            InboundDelivery::class,
+        );
+    }
 
-        return $id;
+    private function orm(): OrmManager
+    {
+        return $this->orm ??= new OrmManager();
+    }
+
+    private function adapter(): \Semitexa\Orm\Adapter\DatabaseAdapterInterface
+    {
+        return $this->orm()->getAdapter();
     }
 }
