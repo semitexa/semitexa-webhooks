@@ -52,8 +52,8 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
                  lease_expires_at = :lease_expires_at,
                  status = :status
              WHERE status IN (:pending, :retry_scheduled)
-               AND next_attempt_at <= :now
-               AND (lease_expires_at IS NULL OR lease_expires_at < :now)
+               AND next_attempt_at <= :now_due
+               AND (lease_expires_at IS NULL OR lease_expires_at < :now_lease)
              ORDER BY next_attempt_at ASC
              LIMIT :limit",
             [
@@ -62,7 +62,8 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
                 'status' => OutboundStatus::Delivering->value,
                 'pending' => OutboundStatus::Pending->value,
                 'retry_scheduled' => OutboundStatus::RetryScheduled->value,
-                'now' => $now->format('Y-m-d H:i:s.u'),
+                'now_due' => $now->format('Y-m-d H:i:s.u'),
+                'now_lease' => $now->format('Y-m-d H:i:s.u'),
                 'limit' => $limit,
             ],
         );
