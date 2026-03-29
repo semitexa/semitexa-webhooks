@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Outbound;
 
+use Semitexa\Core\Attributes\AsService;
+
+#[AsService]
 final class OutboundRequestSigner
 {
     public function sign(string $body, string $secretRef, string $algorithm = 'sha256'): array

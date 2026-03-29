@@ -4,103 +4,169 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Db\MySQL\Repository;
 
+use Semitexa\Core\Attributes\InjectAsReadonly;
 use Semitexa\Core\Attributes\SatisfiesRepositoryContract;
-use Semitexa\Orm\Repository\AbstractRepository;
-use Semitexa\Orm\Uuid\Uuid7;
-use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookOutboxResource;
+use Semitexa\Orm\OrmManager;
+use Semitexa\Orm\Query\Direction;
+use Semitexa\Orm\Query\Operator;
+use Semitexa\Orm\Repository\DomainRepository;
+use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookOutboxTableModel;
 use Semitexa\Webhooks\Domain\Contract\OutboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Model\OutboundDelivery;
 use Semitexa\Webhooks\Enum\OutboundStatus;
 
 #[SatisfiesRepositoryContract(of: OutboundDeliveryRepositoryInterface::class)]
-final class OutboundDeliveryRepository extends AbstractRepository implements OutboundDeliveryRepositoryInterface
+final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInterface
 {
-    protected function getResourceClass(): string
+    #[InjectAsReadonly]
+    protected ?OrmManager $orm = null;
+
+    private ?DomainRepository $repository = null;
+
+    public function findById(string $id): ?OutboundDelivery
     {
-        return WebhookOutboxResource::class;
+        /** @var OutboundDelivery|null */
+        return $this->repository()->findById($id);
     }
 
-    public function findById(int|string $id): ?OutboundDelivery
+    public function save(object $entity): void
     {
-        if (is_int($id)) {
-            $id = (string) $id;
+        if (!$entity instanceof OutboundDelivery) {
+            throw new \InvalidArgumentException(sprintf('Expected %s, got %s.', OutboundDelivery::class, $entity::class));
         }
 
-        /** @var OutboundDelivery|null */
-        return $this->select()
-            ->where($this->getPkColumn(), '=', $this->normalizeId($id))
-            ->fetchOne();
-    }
+        try {
+            $this->repository()->insert($entity);
+            return;
+        } catch (\Throwable $e) {
+            if (!$this->isDuplicateKeyException($e)) {
+                throw $e;
+            }
+        }
 
-    public function save(object $delivery): void
-    {
-        parent::save($delivery);
+        $this->repository()->update($entity);
     }
 
     public function claimAndLease(string $workerId, \DateTimeImmutable $leaseExpiresAt, int $limit = 1): ?OutboundDelivery
     {
         $now = new \DateTimeImmutable();
-        $nowStr = $now->format('Y-m-d H:i:s.u');
-
-        // Raw SQL for atomic claim to prevent double-claiming under concurrency
-        $table = 'webhook_outbox';
-        $sql = <<<SQL
-            UPDATE {$table}
-            SET lease_owner = ?, lease_expires_at = ?, status = ?
-            WHERE status IN (?, ?)
-              AND next_attempt_at <= ?
-              AND (lease_expires_at IS NULL OR lease_expires_at < ?)
-            ORDER BY next_attempt_at ASC
-            LIMIT ?
-        SQL;
-
-        $affectedId = $this->rawUpdate($sql, [
-            $workerId,
-            $leaseExpiresAt->format('Y-m-d H:i:s.u'),
-            OutboundStatus::Delivering->value,
-            OutboundStatus::Pending->value,
-            OutboundStatus::RetryScheduled->value,
-            $nowStr,
-            $nowStr,
-            $limit,
-        ]);
-
-        if ($affectedId === 0) {
+        $candidateIds = $this->selectClaimCandidateIds($now, $limit);
+        if ($candidateIds === []) {
             return null;
         }
 
-        // Fetch the claimed row
+        $idPlaceholders = [];
+        $params = [
+            'worker_id' => $workerId,
+            'lease_expires_at' => $leaseExpiresAt->format('Y-m-d H:i:s.u'),
+            'status' => OutboundStatus::Delivering->value,
+            'pending' => OutboundStatus::Pending->value,
+            'retry_scheduled' => OutboundStatus::RetryScheduled->value,
+            'now_due' => $now->format('Y-m-d H:i:s.u'),
+            'now_lease' => $now->format('Y-m-d H:i:s.u'),
+        ];
+
+        foreach ($candidateIds as $index => $candidateId) {
+            $placeholder = "id_{$index}";
+            $idPlaceholders[] = ':' . $placeholder;
+            $params[$placeholder] = $candidateId;
+        }
+
+        $result = $this->adapter()->execute(
+            "UPDATE webhook_outbox
+             SET lease_owner = :worker_id,
+                 lease_expires_at = :lease_expires_at,
+                 status = :status
+             WHERE id IN (" . implode(', ', $idPlaceholders) . ")
+               AND status IN (:pending, :retry_scheduled)
+               AND next_attempt_at <= :now_due
+               AND (lease_expires_at IS NULL OR lease_expires_at < :now_lease)",
+            $params,
+        );
+
+        if ($result->rowCount === 0) {
+            return null;
+        }
+
         /** @var OutboundDelivery|null */
-        return $this->select()
-            ->where('lease_owner', '=', $workerId)
-            ->where('status', '=', OutboundStatus::Delivering->value)
-            ->orderBy('next_attempt_at', 'ASC')
-            ->fetchOne();
+        return $this->repository()->query()
+            ->where(WebhookOutboxTableModel::column('id'), Operator::Equals, $candidateIds[0])
+            ->where(WebhookOutboxTableModel::column('status'), Operator::Equals, OutboundStatus::Delivering->value)
+            ->fetchOneAs(OutboundDelivery::class, $this->orm()->getMapperRegistry());
     }
 
     public function findByStatus(string $status, int $limit = 50): array
     {
         /** @var list<OutboundDelivery> */
-        return $this->select()
-            ->where('status', '=', $status)
-            ->orderBy('next_attempt_at', 'ASC')
+        return $this->repository()->query()
+            ->where(WebhookOutboxTableModel::column('status'), Operator::Equals, $status)
+            ->orderBy(WebhookOutboxTableModel::column('nextAttemptAt'), Direction::Asc)
             ->limit($limit)
-            ->fetchAll();
+            ->fetchAllAs(OutboundDelivery::class, $this->orm()->getMapperRegistry());
     }
 
     public function deleteOlderThan(\DateTimeImmutable $cutoff): int
     {
-        return $this->delete()
-            ->where('created_at', '<', $cutoff->format('Y-m-d H:i:s.u'))
-            ->execute();
+        $result = $this->adapter()->execute(
+            'DELETE FROM webhook_outbox WHERE created_at < :cutoff',
+            ['cutoff' => $cutoff->format('Y-m-d H:i:s.u')],
+        );
+
+        return $result->rowCount;
     }
 
-    private function normalizeId(string $id): string
+    private function repository(): DomainRepository
     {
-        if (strlen($id) === 36 && str_contains($id, '-')) {
-            return Uuid7::toBytes($id);
+        return $this->repository ??= $this->orm()->repository(
+            WebhookOutboxTableModel::class,
+            OutboundDelivery::class,
+        );
+    }
+
+    private function orm(): OrmManager
+    {
+        return $this->orm ??= new OrmManager();
+    }
+
+    private function adapter(): \Semitexa\Orm\Adapter\DatabaseAdapterInterface
+    {
+        return $this->orm()->getAdapter();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function selectClaimCandidateIds(\DateTimeImmutable $now, int $limit): array
+    {
+        $rows = $this->adapter()->execute(
+            'SELECT id
+             FROM webhook_outbox
+             WHERE status IN (:pending, :retry_scheduled)
+               AND next_attempt_at <= :now_due
+               AND (lease_expires_at IS NULL OR lease_expires_at < :now_lease)
+             ORDER BY next_attempt_at ASC
+             LIMIT :limit',
+            [
+                'pending' => OutboundStatus::Pending->value,
+                'retry_scheduled' => OutboundStatus::RetryScheduled->value,
+                'now_due' => $now->format('Y-m-d H:i:s.u'),
+                'now_lease' => $now->format('Y-m-d H:i:s.u'),
+                'limit' => max(1, $limit),
+            ],
+        )->fetchAll();
+
+        return array_values(array_filter(array_map(
+            static fn(array $row): ?string => isset($row['id']) ? (string) $row['id'] : null,
+            $rows,
+        )));
+    }
+
+    private function isDuplicateKeyException(\Throwable $e): bool
+    {
+        if ($e instanceof \PDOException && (string) $e->getCode() === '23000') {
+            return true;
         }
 
-        return $id;
+        return str_contains(strtolower($e->getMessage()), 'duplicate');
     }
 }
