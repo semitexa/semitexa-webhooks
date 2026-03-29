@@ -76,7 +76,7 @@ final class WebhookInboxMapper implements TableModelMapper
             lastError: $domainModel->getLastError(),
             metadataJson: $domainModel->getMetadata() !== null ? json_encode($domainModel->getMetadata(), JSON_THROW_ON_ERROR) : null,
             createdAt: $domainModel->getCreatedAt(),
-            updatedAt: null,
+            updatedAt: new \DateTimeImmutable(),
         );
     }
 }

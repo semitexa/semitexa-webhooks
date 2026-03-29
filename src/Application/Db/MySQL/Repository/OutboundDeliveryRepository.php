@@ -35,9 +35,13 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
             throw new \InvalidArgumentException(sprintf('Expected %s, got %s.', OutboundDelivery::class, $entity::class));
         }
 
-        if ($this->findById($entity->getId()) === null) {
+        try {
             $this->repository()->insert($entity);
             return;
+        } catch (\Throwable $e) {
+            if (!$this->isDuplicateKeyException($e)) {
+                throw $e;
+            }
         }
 
         $this->repository()->update($entity);
@@ -46,26 +50,38 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
     public function claimAndLease(string $workerId, \DateTimeImmutable $leaseExpiresAt, int $limit = 1): ?OutboundDelivery
     {
         $now = new \DateTimeImmutable();
+        $candidateIds = $this->selectClaimCandidateIds($now, $limit);
+        if ($candidateIds === []) {
+            return null;
+        }
+
+        $idPlaceholders = [];
+        $params = [
+            'worker_id' => $workerId,
+            'lease_expires_at' => $leaseExpiresAt->format('Y-m-d H:i:s.u'),
+            'status' => OutboundStatus::Delivering->value,
+            'pending' => OutboundStatus::Pending->value,
+            'retry_scheduled' => OutboundStatus::RetryScheduled->value,
+            'now_due' => $now->format('Y-m-d H:i:s.u'),
+            'now_lease' => $now->format('Y-m-d H:i:s.u'),
+        ];
+
+        foreach ($candidateIds as $index => $candidateId) {
+            $placeholder = "id_{$index}";
+            $idPlaceholders[] = ':' . $placeholder;
+            $params[$placeholder] = $candidateId;
+        }
+
         $result = $this->adapter()->execute(
             "UPDATE webhook_outbox
              SET lease_owner = :worker_id,
                  lease_expires_at = :lease_expires_at,
                  status = :status
-             WHERE status IN (:pending, :retry_scheduled)
+             WHERE id IN (" . implode(', ', $idPlaceholders) . ")
+               AND status IN (:pending, :retry_scheduled)
                AND next_attempt_at <= :now_due
-               AND (lease_expires_at IS NULL OR lease_expires_at < :now_lease)
-             ORDER BY next_attempt_at ASC
-             LIMIT :limit",
-            [
-                'worker_id' => $workerId,
-                'lease_expires_at' => $leaseExpiresAt->format('Y-m-d H:i:s.u'),
-                'status' => OutboundStatus::Delivering->value,
-                'pending' => OutboundStatus::Pending->value,
-                'retry_scheduled' => OutboundStatus::RetryScheduled->value,
-                'now_due' => $now->format('Y-m-d H:i:s.u'),
-                'now_lease' => $now->format('Y-m-d H:i:s.u'),
-                'limit' => $limit,
-            ],
+               AND (lease_expires_at IS NULL OR lease_expires_at < :now_lease)",
+            $params,
         );
 
         if ($result->rowCount === 0) {
@@ -74,9 +90,8 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
 
         /** @var OutboundDelivery|null */
         return $this->repository()->query()
-            ->where(WebhookOutboxTableModel::column('leaseOwner'), Operator::Equals, $workerId)
+            ->where(WebhookOutboxTableModel::column('id'), Operator::Equals, $candidateIds[0])
             ->where(WebhookOutboxTableModel::column('status'), Operator::Equals, OutboundStatus::Delivering->value)
-            ->orderBy(WebhookOutboxTableModel::column('nextAttemptAt'), Direction::Asc)
             ->fetchOneAs(OutboundDelivery::class, $this->orm()->getMapperRegistry());
     }
 
@@ -116,5 +131,42 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
     private function adapter(): \Semitexa\Orm\Adapter\DatabaseAdapterInterface
     {
         return $this->orm()->getAdapter();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function selectClaimCandidateIds(\DateTimeImmutable $now, int $limit): array
+    {
+        $rows = $this->adapter()->execute(
+            'SELECT id
+             FROM webhook_outbox
+             WHERE status IN (:pending, :retry_scheduled)
+               AND next_attempt_at <= :now_due
+               AND (lease_expires_at IS NULL OR lease_expires_at < :now_lease)
+             ORDER BY next_attempt_at ASC
+             LIMIT :limit',
+            [
+                'pending' => OutboundStatus::Pending->value,
+                'retry_scheduled' => OutboundStatus::RetryScheduled->value,
+                'now_due' => $now->format('Y-m-d H:i:s.u'),
+                'now_lease' => $now->format('Y-m-d H:i:s.u'),
+                'limit' => max(1, $limit),
+            ],
+        )->fetchAll();
+
+        return array_values(array_filter(array_map(
+            static fn(array $row): ?string => isset($row['id']) ? (string) $row['id'] : null,
+            $rows,
+        )));
+    }
+
+    private function isDuplicateKeyException(\Throwable $e): bool
+    {
+        if ($e instanceof \PDOException && (string) $e->getCode() === '23000') {
+            return true;
+        }
+
+        return str_contains(strtolower($e->getMessage()), 'duplicate');
     }
 }

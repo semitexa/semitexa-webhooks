@@ -15,6 +15,9 @@ final class WebhookEndpointDefinitionMapper implements TableModelMapper
     public function toDomain(object $tableModel): object
     {
         $tableModel instanceof WebhookEndpointDefinitionTableModel || throw new \InvalidArgumentException('Unexpected table model.');
+        if ($tableModel->createdAt === null || $tableModel->updatedAt === null) {
+            throw new \InvalidArgumentException('Webhook endpoint definition timestamps must not be null.');
+        }
 
         return new WebhookEndpointDefinition(
             id: $tableModel->id,
@@ -35,8 +38,8 @@ final class WebhookEndpointDefinitionMapper implements TableModelMapper
             handlerClass: $tableModel->handlerClass,
             defaultHeaders: $tableModel->defaultHeadersJson !== null ? json_decode($tableModel->defaultHeadersJson, true, 512, JSON_THROW_ON_ERROR) : null,
             metadata: $tableModel->metadataJson !== null ? json_decode($tableModel->metadataJson, true, 512, JSON_THROW_ON_ERROR) : null,
-            createdAt: $tableModel->createdAt ?? new \DateTimeImmutable(),
-            updatedAt: $tableModel->updatedAt ?? new \DateTimeImmutable(),
+            createdAt: $tableModel->createdAt,
+            updatedAt: $tableModel->updatedAt,
         );
     }
 

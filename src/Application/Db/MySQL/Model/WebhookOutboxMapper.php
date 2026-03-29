@@ -79,7 +79,7 @@ final class WebhookOutboxMapper implements TableModelMapper
             sourceRef: $domainModel->getSourceRef(),
             metadataJson: $domainModel->getMetadata() !== null ? json_encode($domainModel->getMetadata(), JSON_THROW_ON_ERROR) : null,
             createdAt: $domainModel->getCreatedAt(),
-            updatedAt: null,
+            updatedAt: new \DateTimeImmutable(),
         );
     }
 }
