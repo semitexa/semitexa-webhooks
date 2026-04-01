@@ -1,7 +1,7 @@
 {
     "name": "semitexa/webhooks",
     "description": "Semitexa Webhooks - inbound verification/deduplication and outbound durable delivery with retries",
-    "version": "0.1.0",
+    "version": "v0.1.2",
     "type": "semitexa-module",
     "license": "MIT",
     "authors": [
