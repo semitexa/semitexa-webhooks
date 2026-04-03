@@ -1,4 +1,4 @@
-# semitexa/webhooks
+# Semitexa Webhooks
 
 Webhook support for Semitexa — inbound signature verification with deduplication, outbound durable delivery with retries, audit trail, and replay CLI.
 
