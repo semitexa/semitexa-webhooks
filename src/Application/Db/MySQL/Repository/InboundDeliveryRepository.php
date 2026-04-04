@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Db\MySQL\Repository;
 
-use Semitexa\Core\Attributes\InjectAsReadonly;
-use Semitexa\Core\Attributes\SatisfiesRepositoryContract;
+use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Attribute\SatisfiesRepositoryContract;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Query\Operator;

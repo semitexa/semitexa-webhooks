@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Outbound;
 
-use Semitexa\Core\Attributes\AsService;
+use Semitexa\Core\Attribute\AsService;
 
 #[AsService]
 final class OutboundRequestSigner

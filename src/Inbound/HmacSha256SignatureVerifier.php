@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Inbound;
 
-use Semitexa\Core\Attributes\SatisfiesServiceContract;
+use Semitexa\Core\Attribute\SatisfiesServiceContract;
 use Semitexa\Webhooks\Domain\Contract\WebhookSignatureVerifierInterface;
 use Semitexa\Webhooks\Domain\Model\VerificationResult;
 use Semitexa\Webhooks\Domain\Model\WebhookVerificationInput;

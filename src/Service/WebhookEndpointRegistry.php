@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Service;
 
-use Semitexa\Core\Attributes\SatisfiesServiceContract;
+use Semitexa\Core\Attribute\SatisfiesServiceContract;
 use Semitexa\Webhooks\Domain\Contract\WebhookEndpointRegistryInterface;
 use Semitexa\Webhooks\Domain\Model\WebhookEndpointDefinition;
 

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Service;
 
-use Semitexa\Core\Attributes\InjectAsReadonly;
+use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Orm\Uuid\Uuid7;
 use Semitexa\Webhooks\Domain\Contract\WebhookAttemptRepositoryInterface;
 use Semitexa\Webhooks\Domain\Model\WebhookAttempt;

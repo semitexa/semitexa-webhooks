@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Console;
 
-use Semitexa\Core\Attributes\AsCommand;
+use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Core\Container\ContainerFactory;
 use Semitexa\Webhooks\Domain\Contract\InboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookAttemptRepositoryInterface;
