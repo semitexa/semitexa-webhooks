@@ -9,7 +9,7 @@ use Semitexa\Orm\Contract\TableModelMapper;
 use Semitexa\Webhooks\Domain\Model\OutboundDelivery;
 use Semitexa\Webhooks\Enum\OutboundStatus;
 
-#[AsMapper(tableModel: WebhookOutboxTableModel::class, domainModel: OutboundDelivery::class)]
+#[AsMapper(resourceModel: WebhookOutboxTableModel::class, domainModel: OutboundDelivery::class)]
 final class WebhookOutboxMapper implements TableModelMapper
 {
     public function toDomain(object $tableModel): object
