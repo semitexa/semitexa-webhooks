@@ -9,7 +9,10 @@ use Semitexa\Orm\Contract\TableModelMapper;
 use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
 use Semitexa\Webhooks\Enum\WebhookDirection;
 
-#[AsMapper(tableModel: WebhookAttemptTableModel::class, domainModel: WebhookAttempt::class)]
+#[AsMapper(
+    resourceModel: WebhookAttemptTableModel::class,
+    domainModel: WebhookAttempt::class
+)]
 final class WebhookAttemptMapper implements TableModelMapper
 {
     public function toDomain(object $tableModel): object

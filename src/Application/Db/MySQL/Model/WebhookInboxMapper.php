@@ -10,7 +10,7 @@ use Semitexa\Webhooks\Domain\Model\InboundDelivery;
 use Semitexa\Webhooks\Enum\InboundStatus;
 use Semitexa\Webhooks\Enum\SignatureStatus;
 
-#[AsMapper(tableModel: WebhookInboxTableModel::class, domainModel: InboundDelivery::class)]
+#[AsMapper(resourceModel: WebhookInboxTableModel::class, domainModel: InboundDelivery::class)]
 final class WebhookInboxMapper implements TableModelMapper
 {
     public function toDomain(object $tableModel): object
