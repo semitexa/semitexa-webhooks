@@ -10,7 +10,7 @@ use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
-use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookInboxTableModel;
+use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookInboxResourceModel;
 use Semitexa\Webhooks\Domain\Contract\InboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Model\InboundDelivery;
 
@@ -61,7 +61,7 @@ final class InboundDeliveryRepository implements InboundDeliveryRepositoryInterf
     {
         /** @var InboundDelivery|null */
         return $this->repository()->query()
-            ->where(WebhookInboxTableModel::column('dedupeKey'), Operator::Equals, $dedupeKey)
+            ->where(WebhookInboxResourceModel::column('dedupeKey'), Operator::Equals, $dedupeKey)
             ->fetchOneAs(InboundDelivery::class, $this->orm()->getMapperRegistry());
     }
 
@@ -69,8 +69,8 @@ final class InboundDeliveryRepository implements InboundDeliveryRepositoryInterf
     {
         /** @var list<InboundDelivery> */
         return $this->repository()->query()
-            ->where(WebhookInboxTableModel::column('status'), Operator::Equals, $status)
-            ->orderBy(WebhookInboxTableModel::column('lastReceivedAt'), Direction::Asc)
+            ->where(WebhookInboxResourceModel::column('status'), Operator::Equals, $status)
+            ->orderBy(WebhookInboxResourceModel::column('lastReceivedAt'), Direction::Asc)
             ->limit($limit)
             ->fetchAllAs(InboundDelivery::class, $this->orm()->getMapperRegistry());
     }
@@ -88,7 +88,7 @@ final class InboundDeliveryRepository implements InboundDeliveryRepositoryInterf
     private function repository(): DomainRepository
     {
         return $this->repository ??= $this->orm()->repository(
-            WebhookInboxTableModel::class,
+            WebhookInboxResourceModel::class,
             InboundDelivery::class,
         );
     }

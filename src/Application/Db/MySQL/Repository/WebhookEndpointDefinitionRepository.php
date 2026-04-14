@@ -10,7 +10,7 @@ use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
-use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookEndpointDefinitionTableModel;
+use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookEndpointDefinitionResourceModel;
 use Semitexa\Webhooks\Domain\Contract\WebhookEndpointDefinitionRepositoryInterface;
 use Semitexa\Webhooks\Domain\Model\WebhookEndpointDefinition;
 
@@ -32,7 +32,7 @@ final class WebhookEndpointDefinitionRepository implements WebhookEndpointDefini
     {
         /** @var WebhookEndpointDefinition|null */
         return $this->repository()->query()
-            ->where(WebhookEndpointDefinitionTableModel::column('endpointKey'), Operator::Equals, $endpointKey)
+            ->where(WebhookEndpointDefinitionResourceModel::column('endpointKey'), Operator::Equals, $endpointKey)
             ->fetchOneAs(WebhookEndpointDefinition::class, $this->orm()->getMapperRegistry());
     }
 
@@ -58,7 +58,7 @@ final class WebhookEndpointDefinitionRepository implements WebhookEndpointDefini
     {
         /** @var list<WebhookEndpointDefinition> */
         return $this->repository()->query()
-            ->orderBy(WebhookEndpointDefinitionTableModel::column('endpointKey'), Direction::Asc)
+            ->orderBy(WebhookEndpointDefinitionResourceModel::column('endpointKey'), Direction::Asc)
             ->fetchAllAs(WebhookEndpointDefinition::class, $this->orm()->getMapperRegistry());
     }
 
@@ -66,16 +66,16 @@ final class WebhookEndpointDefinitionRepository implements WebhookEndpointDefini
     {
         /** @var list<WebhookEndpointDefinition> */
         return $this->repository()->query()
-            ->where(WebhookEndpointDefinitionTableModel::column('direction'), Operator::Equals, $direction)
-            ->where(WebhookEndpointDefinitionTableModel::column('enabled'), Operator::Equals, true)
-            ->orderBy(WebhookEndpointDefinitionTableModel::column('endpointKey'), Direction::Asc)
+            ->where(WebhookEndpointDefinitionResourceModel::column('direction'), Operator::Equals, $direction)
+            ->where(WebhookEndpointDefinitionResourceModel::column('enabled'), Operator::Equals, true)
+            ->orderBy(WebhookEndpointDefinitionResourceModel::column('endpointKey'), Direction::Asc)
             ->fetchAllAs(WebhookEndpointDefinition::class, $this->orm()->getMapperRegistry());
     }
 
     private function repository(): DomainRepository
     {
         return $this->repository ??= $this->orm()->repository(
-            WebhookEndpointDefinitionTableModel::class,
+            WebhookEndpointDefinitionResourceModel::class,
             WebhookEndpointDefinition::class,
         );
     }

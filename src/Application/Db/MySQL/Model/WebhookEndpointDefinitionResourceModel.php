@@ -12,7 +12,7 @@ use Semitexa\Orm\Metadata\HasColumnReferences;
 use Semitexa\Orm\Metadata\HasRelationReferences;
 
 #[FromTable(name: 'webhook_endpoint_definitions')]
-final readonly class WebhookEndpointDefinitionTableModel
+final readonly class WebhookEndpointDefinitionResourceModel
 {
     use HasColumnReferences;
     use HasRelationReferences;
