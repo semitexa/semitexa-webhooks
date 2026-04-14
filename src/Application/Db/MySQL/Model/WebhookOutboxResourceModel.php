@@ -12,7 +12,7 @@ use Semitexa\Orm\Metadata\HasColumnReferences;
 use Semitexa\Orm\Metadata\HasRelationReferences;
 
 #[FromTable(name: 'webhook_outbox')]
-final readonly class WebhookOutboxTableModel
+final readonly class WebhookOutboxResourceModel
 {
     use HasColumnReferences;
     use HasRelationReferences;

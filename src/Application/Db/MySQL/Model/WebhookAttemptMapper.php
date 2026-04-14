@@ -5,42 +5,42 @@ declare(strict_types=1);
 namespace Semitexa\Webhooks\Application\Db\MySQL\Model;
 
 use Semitexa\Orm\Attribute\AsMapper;
-use Semitexa\Orm\Contract\TableModelMapper;
+use Semitexa\Orm\Contract\ResourceModelMapperInterface;
 use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
 use Semitexa\Webhooks\Enum\WebhookDirection;
 
 #[AsMapper(
-    resourceModel: WebhookAttemptTableModel::class,
+    resourceModel: WebhookAttemptResourceModel::class,
     domainModel: WebhookAttempt::class
 )]
-final class WebhookAttemptMapper implements TableModelMapper
+final class WebhookAttemptMapper implements ResourceModelMapperInterface
 {
-    public function toDomain(object $tableModel): object
+    public function toDomain(object $resourceModel): object
     {
-        $tableModel instanceof WebhookAttemptTableModel || throw new \InvalidArgumentException('Unexpected table model.');
+        $resourceModel instanceof WebhookAttemptResourceModel || throw new \InvalidArgumentException('Unexpected resource model.');
 
         return new WebhookAttempt(
-            id: $tableModel->id,
-            direction: WebhookDirection::from($tableModel->direction),
-            inboxId: $tableModel->inboxId,
-            outboxId: $tableModel->outboxId,
-            eventType: $tableModel->eventType,
-            attemptNumber: $tableModel->attemptNumber,
-            statusBefore: $tableModel->statusBefore,
-            statusAfter: $tableModel->statusAfter,
-            workerId: $tableModel->workerId,
-            httpStatus: $tableModel->httpStatus,
-            message: $tableModel->message,
-            details: $tableModel->detailsJson !== null ? json_decode($tableModel->detailsJson, true, 512, JSON_THROW_ON_ERROR) : null,
-            createdAt: $tableModel->createdAt,
+            id: $resourceModel->id,
+            direction: WebhookDirection::from($resourceModel->direction),
+            inboxId: $resourceModel->inboxId,
+            outboxId: $resourceModel->outboxId,
+            eventType: $resourceModel->eventType,
+            attemptNumber: $resourceModel->attemptNumber,
+            statusBefore: $resourceModel->statusBefore,
+            statusAfter: $resourceModel->statusAfter,
+            workerId: $resourceModel->workerId,
+            httpStatus: $resourceModel->httpStatus,
+            message: $resourceModel->message,
+            details: $resourceModel->detailsJson !== null ? json_decode($resourceModel->detailsJson, true, 512, JSON_THROW_ON_ERROR) : null,
+            createdAt: $resourceModel->createdAt,
         );
     }
 
-    public function toTableModel(object $domainModel): object
+    public function toSourceModel(object $domainModel): object
     {
         $domainModel instanceof WebhookAttempt || throw new \InvalidArgumentException('Unexpected domain model.');
 
-        return new WebhookAttemptTableModel(
+        return new WebhookAttemptResourceModel(
             id: $domainModel->id,
             direction: $domainModel->direction->value,
             inboxId: $domainModel->inboxId,

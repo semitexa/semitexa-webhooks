@@ -5,53 +5,53 @@ declare(strict_types=1);
 namespace Semitexa\Webhooks\Application\Db\MySQL\Model;
 
 use Semitexa\Orm\Attribute\AsMapper;
-use Semitexa\Orm\Contract\TableModelMapper;
+use Semitexa\Orm\Contract\ResourceModelMapperInterface;
 use Semitexa\Webhooks\Domain\Model\OutboundDelivery;
 use Semitexa\Webhooks\Enum\OutboundStatus;
 
-#[AsMapper(resourceModel: WebhookOutboxTableModel::class, domainModel: OutboundDelivery::class)]
-final class WebhookOutboxMapper implements TableModelMapper
+#[AsMapper(resourceModel: WebhookOutboxResourceModel::class, domainModel: OutboundDelivery::class)]
+final class WebhookOutboxMapper implements ResourceModelMapperInterface
 {
-    public function toDomain(object $tableModel): object
+    public function toDomain(object $resourceModel): object
     {
-        $tableModel instanceof WebhookOutboxTableModel || throw new \InvalidArgumentException('Unexpected table model.');
+        $resourceModel instanceof WebhookOutboxResourceModel || throw new \InvalidArgumentException('Unexpected resource model.');
 
         return new OutboundDelivery(
-            id: $tableModel->id,
-            endpointDefinitionId: $tableModel->endpointDefinitionId,
-            endpointKey: $tableModel->endpointKey,
-            providerKey: $tableModel->providerKey,
-            tenantId: $tableModel->tenantId,
-            eventType: $tableModel->eventType,
-            status: OutboundStatus::from($tableModel->status),
-            idempotencyKey: $tableModel->idempotencyKey,
-            payloadJson: $tableModel->payloadJson,
-            headersJson: $tableModel->headersJson,
-            signedHeadersJson: $tableModel->signedHeadersJson,
-            nextAttemptAt: $tableModel->nextAttemptAt,
-            lastAttemptAt: $tableModel->lastAttemptAt,
-            deliveredAt: $tableModel->deliveredAt,
-            attemptCount: $tableModel->attemptCount,
-            maxAttempts: $tableModel->maxAttempts,
-            initialBackoffSeconds: $tableModel->initialBackoffSeconds,
-            maxBackoffSeconds: $tableModel->maxBackoffSeconds,
-            leaseOwner: $tableModel->leaseOwner,
-            leaseExpiresAt: $tableModel->leaseExpiresAt,
-            lastResponseStatus: $tableModel->lastResponseStatus,
-            lastResponseHeadersJson: $tableModel->lastResponseHeadersJson,
-            lastResponseBody: $tableModel->lastResponseBody,
-            lastError: $tableModel->lastError,
-            sourceRef: $tableModel->sourceRef,
-            metadata: $tableModel->metadataJson !== null ? json_decode($tableModel->metadataJson, true, 512, JSON_THROW_ON_ERROR) : null,
-            createdAt: $tableModel->createdAt ?? new \DateTimeImmutable(),
+            id: $resourceModel->id,
+            endpointDefinitionId: $resourceModel->endpointDefinitionId,
+            endpointKey: $resourceModel->endpointKey,
+            providerKey: $resourceModel->providerKey,
+            tenantId: $resourceModel->tenantId,
+            eventType: $resourceModel->eventType,
+            status: OutboundStatus::from($resourceModel->status),
+            idempotencyKey: $resourceModel->idempotencyKey,
+            payloadJson: $resourceModel->payloadJson,
+            headersJson: $resourceModel->headersJson,
+            signedHeadersJson: $resourceModel->signedHeadersJson,
+            nextAttemptAt: $resourceModel->nextAttemptAt,
+            lastAttemptAt: $resourceModel->lastAttemptAt,
+            deliveredAt: $resourceModel->deliveredAt,
+            attemptCount: $resourceModel->attemptCount,
+            maxAttempts: $resourceModel->maxAttempts,
+            initialBackoffSeconds: $resourceModel->initialBackoffSeconds,
+            maxBackoffSeconds: $resourceModel->maxBackoffSeconds,
+            leaseOwner: $resourceModel->leaseOwner,
+            leaseExpiresAt: $resourceModel->leaseExpiresAt,
+            lastResponseStatus: $resourceModel->lastResponseStatus,
+            lastResponseHeadersJson: $resourceModel->lastResponseHeadersJson,
+            lastResponseBody: $resourceModel->lastResponseBody,
+            lastError: $resourceModel->lastError,
+            sourceRef: $resourceModel->sourceRef,
+            metadata: $resourceModel->metadataJson !== null ? json_decode($resourceModel->metadataJson, true, 512, JSON_THROW_ON_ERROR) : null,
+            createdAt: $resourceModel->createdAt ?? new \DateTimeImmutable(),
         );
     }
 
-    public function toTableModel(object $domainModel): object
+    public function toSourceModel(object $domainModel): object
     {
         $domainModel instanceof OutboundDelivery || throw new \InvalidArgumentException('Unexpected domain model.');
 
-        return new WebhookOutboxTableModel(
+        return new WebhookOutboxResourceModel(
             id: $domainModel->getId(),
             endpointDefinitionId: $domainModel->getEndpointDefinitionId(),
             endpointKey: $domainModel->getEndpointKey(),

@@ -5,52 +5,52 @@ declare(strict_types=1);
 namespace Semitexa\Webhooks\Application\Db\MySQL\Model;
 
 use Semitexa\Orm\Attribute\AsMapper;
-use Semitexa\Orm\Contract\TableModelMapper;
+use Semitexa\Orm\Contract\ResourceModelMapperInterface;
 use Semitexa\Webhooks\Domain\Model\InboundDelivery;
 use Semitexa\Webhooks\Enum\InboundStatus;
 use Semitexa\Webhooks\Enum\SignatureStatus;
 
-#[AsMapper(resourceModel: WebhookInboxTableModel::class, domainModel: InboundDelivery::class)]
-final class WebhookInboxMapper implements TableModelMapper
+#[AsMapper(resourceModel: WebhookInboxResourceModel::class, domainModel: InboundDelivery::class)]
+final class WebhookInboxMapper implements ResourceModelMapperInterface
 {
-    public function toDomain(object $tableModel): object
+    public function toDomain(object $resourceModel): object
     {
-        $tableModel instanceof WebhookInboxTableModel || throw new \InvalidArgumentException('Unexpected table model.');
+        $resourceModel instanceof WebhookInboxResourceModel || throw new \InvalidArgumentException('Unexpected resource model.');
 
         return new InboundDelivery(
-            id: $tableModel->id,
-            endpointDefinitionId: $tableModel->endpointDefinitionId,
-            providerKey: $tableModel->providerKey,
-            endpointKey: $tableModel->endpointKey,
-            tenantId: $tableModel->tenantId,
-            providerEventId: $tableModel->providerEventId,
-            dedupeKey: $tableModel->dedupeKey,
-            signatureStatus: SignatureStatus::from($tableModel->signatureStatus),
-            status: InboundStatus::from($tableModel->status),
-            contentType: $tableModel->contentType,
-            httpMethod: $tableModel->httpMethod,
-            requestUri: $tableModel->requestUri,
-            headers: $tableModel->headersJson !== null ? json_decode($tableModel->headersJson, true, 512, JSON_THROW_ON_ERROR) : null,
-            rawBody: $tableModel->rawBody,
-            rawBodySha256: $tableModel->rawBodySha256,
-            parsedEventType: $tableModel->parsedEventType,
-            firstReceivedAt: $tableModel->firstReceivedAt,
-            lastReceivedAt: $tableModel->lastReceivedAt,
-            processingStartedAt: $tableModel->processingStartedAt,
-            processedAt: $tableModel->processedAt,
-            failedAt: $tableModel->failedAt,
-            duplicateCount: $tableModel->duplicateCount,
-            lastError: $tableModel->lastError,
-            metadata: $tableModel->metadataJson !== null ? json_decode($tableModel->metadataJson, true, 512, JSON_THROW_ON_ERROR) : null,
-            createdAt: $tableModel->createdAt ?? new \DateTimeImmutable(),
+            id: $resourceModel->id,
+            endpointDefinitionId: $resourceModel->endpointDefinitionId,
+            providerKey: $resourceModel->providerKey,
+            endpointKey: $resourceModel->endpointKey,
+            tenantId: $resourceModel->tenantId,
+            providerEventId: $resourceModel->providerEventId,
+            dedupeKey: $resourceModel->dedupeKey,
+            signatureStatus: SignatureStatus::from($resourceModel->signatureStatus),
+            status: InboundStatus::from($resourceModel->status),
+            contentType: $resourceModel->contentType,
+            httpMethod: $resourceModel->httpMethod,
+            requestUri: $resourceModel->requestUri,
+            headers: $resourceModel->headersJson !== null ? json_decode($resourceModel->headersJson, true, 512, JSON_THROW_ON_ERROR) : null,
+            rawBody: $resourceModel->rawBody,
+            rawBodySha256: $resourceModel->rawBodySha256,
+            parsedEventType: $resourceModel->parsedEventType,
+            firstReceivedAt: $resourceModel->firstReceivedAt,
+            lastReceivedAt: $resourceModel->lastReceivedAt,
+            processingStartedAt: $resourceModel->processingStartedAt,
+            processedAt: $resourceModel->processedAt,
+            failedAt: $resourceModel->failedAt,
+            duplicateCount: $resourceModel->duplicateCount,
+            lastError: $resourceModel->lastError,
+            metadata: $resourceModel->metadataJson !== null ? json_decode($resourceModel->metadataJson, true, 512, JSON_THROW_ON_ERROR) : null,
+            createdAt: $resourceModel->createdAt ?? new \DateTimeImmutable(),
         );
     }
 
-    public function toTableModel(object $domainModel): object
+    public function toSourceModel(object $domainModel): object
     {
         $domainModel instanceof InboundDelivery || throw new \InvalidArgumentException('Unexpected domain model.');
 
-        return new WebhookInboxTableModel(
+        return new WebhookInboxResourceModel(
             id: $domainModel->getId(),
             endpointDefinitionId: $domainModel->getEndpointDefinitionId(),
             providerKey: $domainModel->getProviderKey(),

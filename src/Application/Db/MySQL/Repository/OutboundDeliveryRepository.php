@@ -10,7 +10,7 @@ use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
-use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookOutboxTableModel;
+use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookOutboxResourceModel;
 use Semitexa\Webhooks\Domain\Contract\OutboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Model\OutboundDelivery;
 use Semitexa\Webhooks\Enum\OutboundStatus;
@@ -90,8 +90,8 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
 
         /** @var OutboundDelivery|null */
         return $this->repository()->query()
-            ->where(WebhookOutboxTableModel::column('id'), Operator::Equals, $candidateIds[0])
-            ->where(WebhookOutboxTableModel::column('status'), Operator::Equals, OutboundStatus::Delivering->value)
+            ->where(WebhookOutboxResourceModel::column('id'), Operator::Equals, $candidateIds[0])
+            ->where(WebhookOutboxResourceModel::column('status'), Operator::Equals, OutboundStatus::Delivering->value)
             ->fetchOneAs(OutboundDelivery::class, $this->orm()->getMapperRegistry());
     }
 
@@ -99,8 +99,8 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
     {
         /** @var list<OutboundDelivery> */
         return $this->repository()->query()
-            ->where(WebhookOutboxTableModel::column('status'), Operator::Equals, $status)
-            ->orderBy(WebhookOutboxTableModel::column('nextAttemptAt'), Direction::Asc)
+            ->where(WebhookOutboxResourceModel::column('status'), Operator::Equals, $status)
+            ->orderBy(WebhookOutboxResourceModel::column('nextAttemptAt'), Direction::Asc)
             ->limit($limit)
             ->fetchAllAs(OutboundDelivery::class, $this->orm()->getMapperRegistry());
     }
@@ -118,7 +118,7 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
     private function repository(): DomainRepository
     {
         return $this->repository ??= $this->orm()->repository(
-            WebhookOutboxTableModel::class,
+            WebhookOutboxResourceModel::class,
             OutboundDelivery::class,
         );
     }

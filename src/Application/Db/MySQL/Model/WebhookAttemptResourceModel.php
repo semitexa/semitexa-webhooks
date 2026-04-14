@@ -12,7 +12,7 @@ use Semitexa\Orm\Metadata\HasColumnReferences;
 use Semitexa\Orm\Metadata\HasRelationReferences;
 
 #[FromTable(name: 'webhook_attempts')]
-final readonly class WebhookAttemptTableModel
+final readonly class WebhookAttemptResourceModel
 {
     use HasColumnReferences;
     use HasRelationReferences;

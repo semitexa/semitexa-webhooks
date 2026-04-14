@@ -10,7 +10,7 @@ use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
-use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookAttemptTableModel;
+use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookAttemptResourceModel;
 use Semitexa\Webhooks\Domain\Contract\WebhookAttemptRepositoryInterface;
 use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
 
@@ -35,9 +35,9 @@ final class WebhookAttemptRepository implements WebhookAttemptRepositoryInterfac
     {
         /** @var list<WebhookAttempt> */
         return $this->repository()->query()
-            ->where(WebhookAttemptTableModel::column('inboxId'), Operator::Equals, $inboxId)
-            ->where(WebhookAttemptTableModel::column('direction'), Operator::Equals, 'inbound')
-            ->orderBy(WebhookAttemptTableModel::column('createdAt'), Direction::Asc)
+            ->where(WebhookAttemptResourceModel::column('inboxId'), Operator::Equals, $inboxId)
+            ->where(WebhookAttemptResourceModel::column('direction'), Operator::Equals, 'inbound')
+            ->orderBy(WebhookAttemptResourceModel::column('createdAt'), Direction::Asc)
             ->fetchAllAs(WebhookAttempt::class, $this->orm()->getMapperRegistry());
     }
 
@@ -45,9 +45,9 @@ final class WebhookAttemptRepository implements WebhookAttemptRepositoryInterfac
     {
         /** @var list<WebhookAttempt> */
         return $this->repository()->query()
-            ->where(WebhookAttemptTableModel::column('outboxId'), Operator::Equals, $outboxId)
-            ->where(WebhookAttemptTableModel::column('direction'), Operator::Equals, 'outbound')
-            ->orderBy(WebhookAttemptTableModel::column('createdAt'), Direction::Asc)
+            ->where(WebhookAttemptResourceModel::column('outboxId'), Operator::Equals, $outboxId)
+            ->where(WebhookAttemptResourceModel::column('direction'), Operator::Equals, 'outbound')
+            ->orderBy(WebhookAttemptResourceModel::column('createdAt'), Direction::Asc)
             ->fetchAllAs(WebhookAttempt::class, $this->orm()->getMapperRegistry());
     }
 
@@ -64,7 +64,7 @@ final class WebhookAttemptRepository implements WebhookAttemptRepositoryInterfac
     private function repository(): DomainRepository
     {
         return $this->repository ??= $this->orm()->repository(
-            WebhookAttemptTableModel::class,
+            WebhookAttemptResourceModel::class,
             WebhookAttempt::class,
         );
     }
