@@ -65,8 +65,15 @@ final class HmacSha256SignatureVerifier implements WebhookSignatureVerifierInter
         // Convention: env:<VAR_NAME> resolves from environment
         if (str_starts_with($secretRef, 'env:')) {
             $envVar = substr($secretRef, 4);
-            $value = $_ENV[$envVar] ?? getenv($envVar);
-            return $value !== false ? (string) $value : null;
+            // Prefer $_ENV when populated (Swoole coroutine-safe), but fall back
+            // to getenv() for deployments where variables_order does not include "E".
+            if (array_key_exists($envVar, $_ENV)) {
+                $value = $_ENV[$envVar];
+                return is_string($value) ? $value : null;
+            }
+
+            $value = getenv($envVar);
+            return is_string($value) ? $value : null;
         }
 
         // Direct value (dev/test only)
