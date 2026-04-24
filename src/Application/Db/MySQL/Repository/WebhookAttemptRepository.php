@@ -18,7 +18,7 @@ use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
 final class WebhookAttemptRepository implements WebhookAttemptRepositoryInterface
 {
     #[InjectAsReadonly]
-    protected ?OrmManager $orm = null;
+    protected OrmManager $orm;
 
     private ?DomainRepository $repository = null;
 

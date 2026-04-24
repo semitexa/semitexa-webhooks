@@ -18,7 +18,7 @@ use Semitexa\Webhooks\Domain\Model\InboundDelivery;
 final class InboundDeliveryRepository implements InboundDeliveryRepositoryInterface
 {
     #[InjectAsReadonly]
-    protected ?OrmManager $orm = null;
+    protected OrmManager $orm;
 
     private ?DomainRepository $repository = null;
 

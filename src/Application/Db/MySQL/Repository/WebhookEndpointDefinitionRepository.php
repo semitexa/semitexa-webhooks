@@ -18,7 +18,7 @@ use Semitexa\Webhooks\Domain\Model\WebhookEndpointDefinition;
 final class WebhookEndpointDefinitionRepository implements WebhookEndpointDefinitionRepositoryInterface
 {
     #[InjectAsReadonly]
-    protected ?OrmManager $orm = null;
+    protected OrmManager $orm;
 
     private ?DomainRepository $repository = null;
 

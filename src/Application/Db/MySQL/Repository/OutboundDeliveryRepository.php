@@ -19,7 +19,7 @@ use Semitexa\Webhooks\Enum\OutboundStatus;
 final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInterface
 {
     #[InjectAsReadonly]
-    protected ?OrmManager $orm = null;
+    protected OrmManager $orm;
 
     private ?DomainRepository $repository = null;
 
