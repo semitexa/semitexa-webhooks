@@ -18,7 +18,7 @@ use Semitexa\Webhooks\Domain\Model\WebhookEndpointDefinition;
 final class WebhookEndpointDefinitionRepository implements WebhookEndpointDefinitionRepositoryInterface
 {
     #[InjectAsReadonly]
-    protected ?OrmManager $orm = null;
+    protected OrmManager $orm;
 
     private ?DomainRepository $repository = null;
 
@@ -82,6 +82,10 @@ final class WebhookEndpointDefinitionRepository implements WebhookEndpointDefini
 
     private function orm(): OrmManager
     {
-        return $this->orm ??= new OrmManager();
+        if (!isset($this->orm)) {
+            throw new \LogicException('WebhookEndpointDefinitionRepository requires OrmManager injection.');
+        }
+
+        return $this->orm;
     }
 }

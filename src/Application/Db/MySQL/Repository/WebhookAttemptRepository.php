@@ -18,7 +18,7 @@ use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
 final class WebhookAttemptRepository implements WebhookAttemptRepositoryInterface
 {
     #[InjectAsReadonly]
-    protected ?OrmManager $orm = null;
+    protected OrmManager $orm;
 
     private ?DomainRepository $repository = null;
 
@@ -71,7 +71,11 @@ final class WebhookAttemptRepository implements WebhookAttemptRepositoryInterfac
 
     private function orm(): OrmManager
     {
-        return $this->orm ??= new OrmManager();
+        if (!isset($this->orm)) {
+            throw new \LogicException('WebhookAttemptRepository requires OrmManager injection.');
+        }
+
+        return $this->orm;
     }
 
     private function adapter(): \Semitexa\Orm\Adapter\DatabaseAdapterInterface

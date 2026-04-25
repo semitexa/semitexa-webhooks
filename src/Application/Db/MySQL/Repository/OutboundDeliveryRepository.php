@@ -19,7 +19,7 @@ use Semitexa\Webhooks\Enum\OutboundStatus;
 final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInterface
 {
     #[InjectAsReadonly]
-    protected ?OrmManager $orm = null;
+    protected OrmManager $orm;
 
     private ?DomainRepository $repository = null;
 
@@ -125,7 +125,11 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
 
     private function orm(): OrmManager
     {
-        return $this->orm ??= new OrmManager();
+        if (!isset($this->orm)) {
+            throw new \LogicException('OutboundDeliveryRepository requires OrmManager injection.');
+        }
+
+        return $this->orm;
     }
 
     private function adapter(): \Semitexa\Orm\Adapter\DatabaseAdapterInterface
