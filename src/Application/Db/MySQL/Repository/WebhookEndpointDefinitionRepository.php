@@ -82,6 +82,10 @@ final class WebhookEndpointDefinitionRepository implements WebhookEndpointDefini
 
     private function orm(): OrmManager
     {
-        return $this->orm ??= new OrmManager();
+        if (!isset($this->orm)) {
+            throw new \LogicException('WebhookEndpointDefinitionRepository requires OrmManager injection.');
+        }
+
+        return $this->orm;
     }
 }

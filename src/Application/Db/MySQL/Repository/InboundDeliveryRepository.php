@@ -95,7 +95,11 @@ final class InboundDeliveryRepository implements InboundDeliveryRepositoryInterf
 
     private function orm(): OrmManager
     {
-        return $this->orm ??= new OrmManager();
+        if (!isset($this->orm)) {
+            throw new \LogicException('InboundDeliveryRepository requires OrmManager injection.');
+        }
+
+        return $this->orm;
     }
 
     private function adapter(): \Semitexa\Orm\Adapter\DatabaseAdapterInterface
