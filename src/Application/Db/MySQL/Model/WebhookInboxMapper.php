@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\Webhooks\Application\Db\MySQL\Model;
 
 use Semitexa\Orm\Attribute\AsMapper;
-use Semitexa\Orm\Contract\ResourceModelMapperInterface;
+use Semitexa\Orm\Domain\Contract\ResourceModelMapperInterface;
 use Semitexa\Webhooks\Domain\Model\InboundDelivery;
 use Semitexa\Webhooks\Enum\InboundStatus;
 use Semitexa\Webhooks\Enum\SignatureStatus;

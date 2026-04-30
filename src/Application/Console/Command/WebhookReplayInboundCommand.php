@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Console;
+namespace Semitexa\Webhooks\Application\Console\Command;
 
 use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Core\Container\ContainerFactory;
