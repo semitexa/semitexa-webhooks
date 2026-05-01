@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Semitexa\Webhooks\Tests\Unit\Enum;
 
 use PHPUnit\Framework\TestCase;
-use Semitexa\Webhooks\Enum\InboundStatus;
-use Semitexa\Webhooks\Enum\OutboundStatus;
-use Semitexa\Webhooks\Enum\SignatureStatus;
-use Semitexa\Webhooks\Enum\WebhookDirection;
+use Semitexa\Webhooks\Domain\Enum\InboundStatus;
+use Semitexa\Webhooks\Domain\Enum\OutboundStatus;
+use Semitexa\Webhooks\Domain\Enum\SignatureStatus;
+use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
 
 final class EnumTest extends TestCase
 {

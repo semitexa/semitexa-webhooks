@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Enum;
+namespace Semitexa\Webhooks\Domain\Enum;
 
 enum SignatureStatus: string
 {

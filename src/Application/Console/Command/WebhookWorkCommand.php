@@ -6,7 +6,7 @@ namespace Semitexa\Webhooks\Application\Console\Command;
 
 use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Core\Container\ContainerFactory;
-use Semitexa\Webhooks\Outbound\WebhookDeliveryWorker;
+use Semitexa\Webhooks\Application\Service\Outbound\WebhookDeliveryWorker;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;

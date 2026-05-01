@@ -2,12 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Application\Db\MySQL\Model;
+namespace Semitexa\Webhooks\Application\Db\MySQL\Mapper;
 
 use Semitexa\Orm\Attribute\AsMapper;
 use Semitexa\Orm\Domain\Contract\ResourceModelMapperInterface;
+use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookAttemptResourceModel;
 use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
-use Semitexa\Webhooks\Enum\WebhookDirection;
+use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
 
 #[AsMapper(
     resourceModel: WebhookAttemptResourceModel::class,

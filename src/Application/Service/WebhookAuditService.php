@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Service;
+namespace Semitexa\Webhooks\Application\Service;
 
 use Semitexa\Core\Attribute\InjectAsReadonly;
-use Semitexa\Orm\Uuid\Uuid7;
+use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\Webhooks\Domain\Contract\WebhookAttemptRepositoryInterface;
 use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
-use Semitexa\Webhooks\Enum\WebhookDirection;
+use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
 
 final class WebhookAuditService
 {

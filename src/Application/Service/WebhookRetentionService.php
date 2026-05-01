@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Service;
+namespace Semitexa\Webhooks\Application\Service;
 
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Webhooks\Configuration\WebhookConfig;

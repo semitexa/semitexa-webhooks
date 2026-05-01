@@ -6,8 +6,8 @@ namespace Semitexa\Webhooks\Tests\Unit\Service;
 
 use PHPUnit\Framework\TestCase;
 use Semitexa\Webhooks\Domain\Model\WebhookEndpointDefinition;
-use Semitexa\Webhooks\Enum\WebhookDirection;
-use Semitexa\Webhooks\Service\WebhookEndpointRegistry;
+use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
+use Semitexa\Webhooks\Application\Service\WebhookEndpointRegistry;
 
 final class WebhookEndpointRegistryTest extends TestCase
 {

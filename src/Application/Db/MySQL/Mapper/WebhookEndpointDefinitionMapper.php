@@ -2,12 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Application\Db\MySQL\Model;
+namespace Semitexa\Webhooks\Application\Db\MySQL\Mapper;
 
 use Semitexa\Orm\Attribute\AsMapper;
 use Semitexa\Orm\Domain\Contract\ResourceModelMapperInterface;
+use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookEndpointDefinitionResourceModel;
 use Semitexa\Webhooks\Domain\Model\WebhookEndpointDefinition;
-use Semitexa\Webhooks\Enum\WebhookDirection;
+use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
 
 #[AsMapper(resourceModel: WebhookEndpointDefinitionResourceModel::class, domainModel: WebhookEndpointDefinition::class)]
 final class WebhookEndpointDefinitionMapper implements ResourceModelMapperInterface

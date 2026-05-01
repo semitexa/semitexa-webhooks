@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Outbound;
+namespace Semitexa\Webhooks\Application\Service\Outbound;
 
 use Semitexa\Core\Attribute\InjectAsReadonly;
-use Semitexa\Orm\Uuid\Uuid7;
+use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\Webhooks\Domain\Contract\OutboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookAttemptRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookTransportInterface;
 use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
-use Semitexa\Webhooks\Enum\WebhookDirection;
+use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
 use Symfony\Component\Console\Output\OutputInterface;
 
 final class WebhookDeliveryWorker

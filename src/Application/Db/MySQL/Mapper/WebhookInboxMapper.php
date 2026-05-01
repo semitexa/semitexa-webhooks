@@ -2,13 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Application\Db\MySQL\Model;
+namespace Semitexa\Webhooks\Application\Db\MySQL\Mapper;
 
 use Semitexa\Orm\Attribute\AsMapper;
 use Semitexa\Orm\Domain\Contract\ResourceModelMapperInterface;
+use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookInboxResourceModel;
 use Semitexa\Webhooks\Domain\Model\InboundDelivery;
-use Semitexa\Webhooks\Enum\InboundStatus;
-use Semitexa\Webhooks\Enum\SignatureStatus;
+use Semitexa\Webhooks\Domain\Enum\InboundStatus;
+use Semitexa\Webhooks\Domain\Enum\SignatureStatus;
 
 #[AsMapper(resourceModel: WebhookInboxResourceModel::class, domainModel: InboundDelivery::class)]
 final class WebhookInboxMapper implements ResourceModelMapperInterface

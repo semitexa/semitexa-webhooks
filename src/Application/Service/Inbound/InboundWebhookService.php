@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Inbound;
+namespace Semitexa\Webhooks\Application\Service\Inbound;
 
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Webhooks\Domain\Contract\InboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookAttemptRepositoryInterface;
 use Semitexa\Webhooks\Domain\Model\InboundDelivery;
 use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
-use Semitexa\Webhooks\Enum\WebhookDirection;
-use Semitexa\Orm\Uuid\Uuid7;
+use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
+use Semitexa\Orm\Application\Service\Uuid7;
 
 final class InboundWebhookService
 {

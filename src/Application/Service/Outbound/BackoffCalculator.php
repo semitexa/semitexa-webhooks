@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Outbound;
+namespace Semitexa\Webhooks\Application\Service\Outbound;
 
 final class BackoffCalculator
 {

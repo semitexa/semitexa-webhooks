@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Inbound;
+namespace Semitexa\Webhooks\Application\Service\Inbound;
 
 final class InboundDedupeKeyFactory
 {

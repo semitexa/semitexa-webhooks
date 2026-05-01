@@ -2,12 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Application\Db\MySQL\Model;
+namespace Semitexa\Webhooks\Application\Db\MySQL\Mapper;
 
 use Semitexa\Orm\Attribute\AsMapper;
 use Semitexa\Orm\Domain\Contract\ResourceModelMapperInterface;
+use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookOutboxResourceModel;
 use Semitexa\Webhooks\Domain\Model\OutboundDelivery;
-use Semitexa\Webhooks\Enum\OutboundStatus;
+use Semitexa\Webhooks\Domain\Enum\OutboundStatus;
 
 #[AsMapper(resourceModel: WebhookOutboxResourceModel::class, domainModel: OutboundDelivery::class)]
 final class WebhookOutboxMapper implements ResourceModelMapperInterface

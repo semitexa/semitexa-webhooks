@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Inbound;
+namespace Semitexa\Webhooks\Application\Service\Inbound;
 
 use Semitexa\Core\Attribute\InjectAsReadonly;
-use Semitexa\Orm\Uuid\Uuid7;
+use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\Webhooks\Domain\Contract\InboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookEndpointDefinitionRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookInboundProcessorInterface;
@@ -13,8 +13,8 @@ use Semitexa\Webhooks\Domain\Contract\WebhookSignatureVerifierInterface;
 use Semitexa\Webhooks\Domain\Model\InboundDelivery;
 use Semitexa\Webhooks\Domain\Model\InboundWebhookEnvelope;
 use Semitexa\Webhooks\Domain\Model\WebhookVerificationInput;
-use Semitexa\Webhooks\Enum\InboundStatus;
-use Semitexa\Webhooks\Enum\SignatureStatus;
+use Semitexa\Webhooks\Domain\Enum\InboundStatus;
+use Semitexa\Webhooks\Domain\Enum\SignatureStatus;
 
 final class InboundWebhookReceiver
 {

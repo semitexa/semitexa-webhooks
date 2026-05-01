@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Webhooks\Outbound;
+namespace Semitexa\Webhooks\Application\Service\Outbound;
 
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
-use Semitexa\Orm\Uuid\Uuid7;
+use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\Webhooks\Domain\Contract\OutboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookEndpointDefinitionRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookPublisherInterface;
 use Semitexa\Webhooks\Domain\Model\OutboundDelivery;
 use Semitexa\Webhooks\Domain\Model\OutboundWebhookMessage;
-use Semitexa\Webhooks\Enum\OutboundStatus;
+use Semitexa\Webhooks\Domain\Enum\OutboundStatus;
 
 #[SatisfiesServiceContract(of: WebhookPublisherInterface::class)]
 final class WebhookPublisher implements WebhookPublisherInterface
