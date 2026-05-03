@@ -6,7 +6,7 @@ namespace Semitexa\Webhooks\Tests\Unit\Domain;
 
 use PHPUnit\Framework\TestCase;
 use Semitexa\Webhooks\Domain\Model\OutboundDelivery;
-use Semitexa\Webhooks\Enum\OutboundStatus;
+use Semitexa\Webhooks\Domain\Enum\OutboundStatus;
 
 final class OutboundDeliveryTest extends TestCase
 {

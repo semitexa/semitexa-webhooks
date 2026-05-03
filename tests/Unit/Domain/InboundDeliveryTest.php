@@ -6,8 +6,8 @@ namespace Semitexa\Webhooks\Tests\Unit\Domain;
 
 use PHPUnit\Framework\TestCase;
 use Semitexa\Webhooks\Domain\Model\InboundDelivery;
-use Semitexa\Webhooks\Enum\InboundStatus;
-use Semitexa\Webhooks\Enum\SignatureStatus;
+use Semitexa\Webhooks\Domain\Enum\InboundStatus;
+use Semitexa\Webhooks\Domain\Enum\SignatureStatus;
 
 final class InboundDeliveryTest extends TestCase
 {

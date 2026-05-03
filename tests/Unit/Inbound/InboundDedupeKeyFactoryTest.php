@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\Webhooks\Tests\Unit\Inbound;
 
 use PHPUnit\Framework\TestCase;
-use Semitexa\Webhooks\Inbound\InboundDedupeKeyFactory;
+use Semitexa\Webhooks\Application\Service\Inbound\InboundDedupeKeyFactory;
 
 final class InboundDedupeKeyFactoryTest extends TestCase
 {

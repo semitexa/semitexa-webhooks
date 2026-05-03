@@ -13,7 +13,7 @@ use Semitexa\Orm\Repository\DomainRepository;
 use Semitexa\Webhooks\Application\Db\MySQL\Model\WebhookOutboxResourceModel;
 use Semitexa\Webhooks\Domain\Contract\OutboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Model\OutboundDelivery;
-use Semitexa\Webhooks\Enum\OutboundStatus;
+use Semitexa\Webhooks\Domain\Enum\OutboundStatus;
 
 #[SatisfiesRepositoryContract(of: OutboundDeliveryRepositoryInterface::class)]
 final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInterface

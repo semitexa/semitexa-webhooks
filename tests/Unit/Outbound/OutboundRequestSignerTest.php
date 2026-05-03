@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\Webhooks\Tests\Unit\Outbound;
 
 use PHPUnit\Framework\TestCase;
-use Semitexa\Webhooks\Outbound\OutboundRequestSigner;
+use Semitexa\Webhooks\Application\Service\Outbound\OutboundRequestSigner;
 
 final class OutboundRequestSignerTest extends TestCase
 {

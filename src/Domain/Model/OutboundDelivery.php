@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Domain\Model;
 
-use Semitexa\Webhooks\Enum\OutboundStatus;
+use Semitexa\Webhooks\Domain\Enum\OutboundStatus;
 
 final class OutboundDelivery
 {

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\Webhooks\Tests\Unit\Outbound;
 
 use PHPUnit\Framework\TestCase;
-use Semitexa\Webhooks\Outbound\BackoffCalculator;
+use Semitexa\Webhooks\Application\Service\Outbound\BackoffCalculator;
 
 final class BackoffCalculatorTest extends TestCase
 {

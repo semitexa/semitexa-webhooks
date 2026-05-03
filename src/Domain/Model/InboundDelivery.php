@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Domain\Model;
 
-use Semitexa\Webhooks\Enum\InboundStatus;
-use Semitexa\Webhooks\Enum\SignatureStatus;
+use Semitexa\Webhooks\Domain\Enum\InboundStatus;
+use Semitexa\Webhooks\Domain\Enum\SignatureStatus;
 
 final class InboundDelivery
 {

@@ -6,7 +6,7 @@ namespace Semitexa\Webhooks\Tests\Unit\Inbound;
 
 use PHPUnit\Framework\TestCase;
 use Semitexa\Webhooks\Domain\Model\WebhookVerificationInput;
-use Semitexa\Webhooks\Inbound\HmacSha256SignatureVerifier;
+use Semitexa\Webhooks\Application\Service\Inbound\HmacSha256SignatureVerifier;
 
 final class HmacSha256SignatureVerifierTest extends TestCase
 {
