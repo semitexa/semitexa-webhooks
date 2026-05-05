@@ -7,11 +7,17 @@ namespace Semitexa\Webhooks\Application\Db\MySQL\Model;
 use Semitexa\Orm\Adapter\MySqlType;
 use Semitexa\Orm\Attribute\Column;
 use Semitexa\Orm\Attribute\FromTable;
+use Semitexa\Orm\Attribute\Index;
 use Semitexa\Orm\Attribute\PrimaryKey;
 use Semitexa\Orm\Metadata\HasColumnReferences;
 use Semitexa\Orm\Metadata\HasRelationReferences;
 
 #[FromTable(name: 'webhook_outbox')]
+#[Index(
+    columns: ['endpoint_definition_id', 'idempotency_key'],
+    unique: true,
+    name: 'uniq_webhook_outbox_endpoint_idempotency',
+)]
 final readonly class WebhookOutboxResourceModel
 {
     use HasColumnReferences;

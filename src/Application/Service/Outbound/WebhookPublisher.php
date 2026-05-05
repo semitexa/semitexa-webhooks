@@ -53,6 +53,11 @@ final class WebhookPublisher implements WebhookPublisherInterface
             sourceRef: $message->sourceRef,
         );
 
-        $this->outboxRepo->save($delivery);
+        // Idempotent insert when the message carries an idempotency key:
+        // the (endpoint_definition_id, idempotency_key) UNIQUE constraint
+        // on webhook_outbox guarantees that two concurrent publishers
+        // produce exactly one row. Optional-idempotency policy: NULL
+        // keys always insert a fresh row.
+        $this->outboxRepo->insertOrMatchIdempotency($delivery);
     }
 }

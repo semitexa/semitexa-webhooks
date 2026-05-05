@@ -51,14 +51,27 @@ final class WebhookAttemptRepository implements WebhookAttemptRepositoryInterfac
             ->fetchAllAs(WebhookAttempt::class, $this->orm()->getMapperRegistry());
     }
 
-    public function deleteOlderThan(\DateTimeImmutable $cutoff): int
+    public function deleteOlderThan(\DateTimeImmutable $cutoff, ?int $limit = null): int
     {
-        $result = $this->adapter()->execute(
-            'DELETE FROM webhook_attempts WHERE created_at < :cutoff',
-            ['cutoff' => $cutoff->format('Y-m-d H:i:s.u')],
-        );
+        $sql = 'DELETE FROM webhook_attempts WHERE created_at < :cutoff';
+        if ($limit !== null && $limit > 0) {
+            $sql .= ' LIMIT ' . $limit;
+        }
 
-        return $result->rowCount;
+        return $this->adapter()->execute(
+            $sql,
+            ['cutoff' => $cutoff->format('Y-m-d H:i:s.u')],
+        )->rowCount;
+    }
+
+    public function countOlderThan(\DateTimeImmutable $cutoff): int
+    {
+        $row = $this->adapter()->execute(
+            'SELECT COUNT(*) AS c FROM webhook_attempts WHERE created_at < :cutoff',
+            ['cutoff' => $cutoff->format('Y-m-d H:i:s.u')],
+        )->fetchOne();
+
+        return (int) ($row['c'] ?? 0);
     }
 
     private function repository(): DomainRepository

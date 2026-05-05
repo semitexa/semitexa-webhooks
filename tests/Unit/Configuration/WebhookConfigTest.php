@@ -11,7 +11,7 @@ final class WebhookConfigTest extends TestCase
 {
     public function testDefaultValues(): void
     {
-        $config = new WebhookConfig();
+        $config = WebhookConfig::withOverrides();
 
         self::assertSame(30, $config->defaultTimeoutSeconds);
         self::assertSame(5, $config->defaultMaxAttempts);
@@ -24,7 +24,7 @@ final class WebhookConfigTest extends TestCase
 
     public function testCustomValues(): void
     {
-        $config = new WebhookConfig(
+        $config = WebhookConfig::withOverrides(
             defaultTimeoutSeconds: 60,
             defaultMaxAttempts: 10,
             retentionDays: 90,

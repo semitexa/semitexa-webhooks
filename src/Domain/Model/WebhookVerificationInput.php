@@ -11,5 +11,6 @@ final readonly class WebhookVerificationInput
         public string $rawBody,
         public ?string $secretRef,
         public ?string $verificationMode,
+        public ?string $tenantId = null,
     ) {}
 }
