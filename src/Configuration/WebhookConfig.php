@@ -4,28 +4,113 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Configuration;
 
-final readonly class WebhookConfig
+use Semitexa\Core\Attribute\AsService;
+use Semitexa\Core\Attribute\Config;
+
+/**
+ * Webhook subsystem configuration. Read once at worker boot and cached as a
+ * readonly singleton via the framework's container.
+ *
+ * Scalar fields are populated via the framework's {@see Config} attribute —
+ * the canonical channel for env-driven scalars on container-managed
+ * services. Direct construction (`new WebhookConfig()`) and the back-compat
+ * helper {@see fromEnvironment()} continue to read the same env vars and
+ * fall back to the documented defaults.
+ *
+ * The named-argument override pattern remains supported via
+ * {@see withOverrides()} — tests that pin a known retention window without
+ * losing the other env-driven fields use that helper.
+ */
+#[AsService]
+final class WebhookConfig
 {
-    public function __construct(
-        public int $defaultTimeoutSeconds = 30,
-        public int $defaultMaxAttempts = 5,
-        public int $defaultBackoffBaseSeconds = 10,
-        public float $defaultBackoffMultiplier = 2.0,
-        public int $defaultLeaseSeconds = 120,
-        public int $defaultDedupeWindowSeconds = 86400,
-        public int $retentionDays = 30,
-    ) {}
+    #[Config(env: 'WEBHOOK_TIMEOUT_SECONDS', default: 30)]
+    protected int $defaultTimeoutSeconds;
+
+    #[Config(env: 'WEBHOOK_MAX_ATTEMPTS', default: 5)]
+    protected int $defaultMaxAttempts;
+
+    #[Config(env: 'WEBHOOK_BACKOFF_BASE_SECONDS', default: 10)]
+    protected int $defaultBackoffBaseSeconds;
+
+    #[Config(env: 'WEBHOOK_BACKOFF_MULTIPLIER', default: 2.0)]
+    protected float $defaultBackoffMultiplier;
+
+    #[Config(env: 'WEBHOOK_LEASE_SECONDS', default: 120)]
+    protected int $defaultLeaseSeconds;
+
+    #[Config(env: 'WEBHOOK_DEDUPE_WINDOW_SECONDS', default: 86400)]
+    protected int $defaultDedupeWindowSeconds;
+
+    #[Config(env: 'WEBHOOK_RETENTION_DAYS', default: 30)]
+    protected int $retentionDays;
+
+    public function __construct()
+    {
+        $this->defaultTimeoutSeconds      = (int) ($_ENV['WEBHOOK_TIMEOUT_SECONDS'] ?? 30);
+        $this->defaultMaxAttempts         = (int) ($_ENV['WEBHOOK_MAX_ATTEMPTS'] ?? 5);
+        $this->defaultBackoffBaseSeconds  = (int) ($_ENV['WEBHOOK_BACKOFF_BASE_SECONDS'] ?? 10);
+        $this->defaultBackoffMultiplier   = (float) ($_ENV['WEBHOOK_BACKOFF_MULTIPLIER'] ?? 2.0);
+        $this->defaultLeaseSeconds        = (int) ($_ENV['WEBHOOK_LEASE_SECONDS'] ?? 120);
+        $this->defaultDedupeWindowSeconds = (int) ($_ENV['WEBHOOK_DEDUPE_WINDOW_SECONDS'] ?? 86400);
+        $this->retentionDays              = (int) ($_ENV['WEBHOOK_RETENTION_DAYS'] ?? 30);
+    }
+
+    public function getDefaultTimeoutSeconds(): int { return $this->defaultTimeoutSeconds; }
+    public function getDefaultMaxAttempts(): int { return $this->defaultMaxAttempts; }
+    public function getDefaultBackoffBaseSeconds(): int { return $this->defaultBackoffBaseSeconds; }
+    public function getDefaultBackoffMultiplier(): float { return $this->defaultBackoffMultiplier; }
+    public function getDefaultLeaseSeconds(): int { return $this->defaultLeaseSeconds; }
+    public function getDefaultDedupeWindowSeconds(): int { return $this->defaultDedupeWindowSeconds; }
+    public function getRetentionDays(): int { return $this->retentionDays; }
+
+    public function __get(string $name): mixed
+    {
+        // Backwards-compatible read-only access for callers that still read
+        // the public-style property names. The container injects via
+        // protected properties + #[Config], so callers reaching `$config->retentionDays`
+        // hit this magic getter and receive the resolved value.
+        return match ($name) {
+            'defaultTimeoutSeconds'      => $this->defaultTimeoutSeconds,
+            'defaultMaxAttempts'         => $this->defaultMaxAttempts,
+            'defaultBackoffBaseSeconds'  => $this->defaultBackoffBaseSeconds,
+            'defaultBackoffMultiplier'   => $this->defaultBackoffMultiplier,
+            'defaultLeaseSeconds'        => $this->defaultLeaseSeconds,
+            'defaultDedupeWindowSeconds' => $this->defaultDedupeWindowSeconds,
+            'retentionDays'              => $this->retentionDays,
+            default => throw new \InvalidArgumentException("Unknown WebhookConfig field: {$name}"),
+        };
+    }
+
+    /**
+     * Construct a config with explicit scalar overrides — used by tests that
+     * pin specific values. Fields not overridden read from the environment
+     * (or fall back to the documented defaults) the same way the
+     * container-built singleton does.
+     */
+    public static function withOverrides(
+        ?int $defaultTimeoutSeconds = null,
+        ?int $defaultMaxAttempts = null,
+        ?int $defaultBackoffBaseSeconds = null,
+        ?float $defaultBackoffMultiplier = null,
+        ?int $defaultLeaseSeconds = null,
+        ?int $defaultDedupeWindowSeconds = null,
+        ?int $retentionDays = null,
+    ): self {
+        $config = new self();
+        if ($defaultTimeoutSeconds !== null)      $config->defaultTimeoutSeconds      = $defaultTimeoutSeconds;
+        if ($defaultMaxAttempts !== null)         $config->defaultMaxAttempts         = $defaultMaxAttempts;
+        if ($defaultBackoffBaseSeconds !== null)  $config->defaultBackoffBaseSeconds  = $defaultBackoffBaseSeconds;
+        if ($defaultBackoffMultiplier !== null)   $config->defaultBackoffMultiplier   = $defaultBackoffMultiplier;
+        if ($defaultLeaseSeconds !== null)         $config->defaultLeaseSeconds         = $defaultLeaseSeconds;
+        if ($defaultDedupeWindowSeconds !== null) $config->defaultDedupeWindowSeconds = $defaultDedupeWindowSeconds;
+        if ($retentionDays !== null)              $config->retentionDays              = $retentionDays;
+
+        return $config;
+    }
 
     public static function fromEnvironment(): self
     {
-        return new self(
-            defaultTimeoutSeconds: (int) ($_ENV['WEBHOOK_TIMEOUT_SECONDS'] ?? 30),
-            defaultMaxAttempts: (int) ($_ENV['WEBHOOK_MAX_ATTEMPTS'] ?? 5),
-            defaultBackoffBaseSeconds: (int) ($_ENV['WEBHOOK_BACKOFF_BASE_SECONDS'] ?? 10),
-            defaultBackoffMultiplier: (float) ($_ENV['WEBHOOK_BACKOFF_MULTIPLIER'] ?? 2.0),
-            defaultLeaseSeconds: (int) ($_ENV['WEBHOOK_LEASE_SECONDS'] ?? 120),
-            defaultDedupeWindowSeconds: (int) ($_ENV['WEBHOOK_DEDUPE_WINDOW_SECONDS'] ?? 86400),
-            retentionDays: (int) ($_ENV['WEBHOOK_RETENTION_DAYS'] ?? 30),
-        );
+        return self::withOverrides();
     }
 }

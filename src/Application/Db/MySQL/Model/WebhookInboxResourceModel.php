@@ -7,11 +7,13 @@ namespace Semitexa\Webhooks\Application\Db\MySQL\Model;
 use Semitexa\Orm\Adapter\MySqlType;
 use Semitexa\Orm\Attribute\Column;
 use Semitexa\Orm\Attribute\FromTable;
+use Semitexa\Orm\Attribute\Index;
 use Semitexa\Orm\Attribute\PrimaryKey;
 use Semitexa\Orm\Metadata\HasColumnReferences;
 use Semitexa\Orm\Metadata\HasRelationReferences;
 
 #[FromTable(name: 'webhook_inbox')]
+#[Index(columns: 'dedupe_key', unique: true, name: 'uniq_webhook_inbox_dedupe_key')]
 final readonly class WebhookInboxResourceModel
 {
     use HasColumnReferences;

@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Service\Inbound;
 
+use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
+use Semitexa\Webhooks\Auth\Contract\WebhookSecretResolverInterface;
+use Semitexa\Webhooks\Auth\EnvWebhookSecretResolver;
 use Semitexa\Webhooks\Domain\Contract\WebhookSignatureVerifierInterface;
 use Semitexa\Webhooks\Domain\Model\VerificationResult;
 use Semitexa\Webhooks\Domain\Model\WebhookVerificationInput;
@@ -16,6 +19,9 @@ final class HmacSha256SignatureVerifier implements WebhookSignatureVerifierInter
     private const TIMESTAMP_HEADER = 'X-Webhook-Timestamp';
     private const MAX_TIMESTAMP_DRIFT_SECONDS = 300;
 
+    #[InjectAsReadonly]
+    protected WebhookSecretResolverInterface $secretResolver;
+
     public function verify(WebhookVerificationInput $input): VerificationResult
     {
         if ($input->verificationMode === null || $input->verificationMode === '') {
@@ -26,7 +32,7 @@ final class HmacSha256SignatureVerifier implements WebhookSignatureVerifierInter
             return VerificationResult::failure('No secret configured for verification');
         }
 
-        $secret = $this->resolveSecret($input->secretRef);
+        $secret = $this->resolver()->resolve($input->secretRef, $input->tenantId);
         if ($secret === null) {
             return VerificationResult::failure('Failed to resolve secret from ref: ' . $input->secretRef);
         }
@@ -60,24 +66,18 @@ final class HmacSha256SignatureVerifier implements WebhookSignatureVerifierInter
         return VerificationResult::success();
     }
 
-    private function resolveSecret(string $secretRef): ?string
+    /**
+     * Returns the wired {@see WebhookSecretResolverInterface}, falling back
+     * to {@see EnvWebhookSecretResolver} in setups where DI was bypassed
+     * (legacy unit-test constructions, tooling that pokes the verifier
+     * directly). Production paths always inject the resolver via DI.
+     */
+    private function resolver(): WebhookSecretResolverInterface
     {
-        // Convention: env:<VAR_NAME> resolves from environment
-        if (str_starts_with($secretRef, 'env:')) {
-            $envVar = substr($secretRef, 4);
-            // Prefer $_ENV when populated (Swoole coroutine-safe), but fall back
-            // to getenv() for deployments where variables_order does not include "E".
-            if (array_key_exists($envVar, $_ENV)) {
-                $value = $_ENV[$envVar];
-                return is_string($value) ? $value : null;
-            }
-
-            $value = getenv($envVar);
-            return is_string($value) ? $value : null;
+        if (!isset($this->secretResolver)) {
+            $this->secretResolver = new EnvWebhookSecretResolver();
         }
-
-        // Direct value (dev/test only)
-        return $secretRef;
+        return $this->secretResolver;
     }
 
     private function getHeader(array $headers, string $name): ?string

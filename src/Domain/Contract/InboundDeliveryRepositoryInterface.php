@@ -29,5 +29,26 @@ interface InboundDeliveryRepositoryInterface
      */
     public function findByStatus(string $status, int $limit = 50): array;
 
-    public function deleteOlderThan(\DateTimeImmutable $cutoff): int;
+    /**
+     * Delete inbound deliveries in a TERMINAL status (processed, failed,
+     * rejected_signature, duplicate_ignored) whose created_at is older than
+     * $cutoff. Received, Verified and Processing rows are PRESERVED — those
+     * still represent live work. The optional $limit caps the number of
+     * rows removed in a single call so cleanup can be batched without
+     * holding a long transaction; null means unbounded.
+     *
+     * When $tenantId is non-null, the delete is additionally scoped to
+     * rows whose `tenant_id` matches; null (the default) means cleanup
+     * spans every tenant.
+     *
+     * Returns the number of rows actually deleted.
+     */
+    public function deleteTerminalOlderThan(\DateTimeImmutable $cutoff, ?int $limit = null, ?string $tenantId = null): int;
+
+    /**
+     * Count inbound deliveries that {@see deleteTerminalOlderThan()} would
+     * remove for the given cutoff. Used by dry-run cleanup. Same status /
+     * tenant filter as the delete method.
+     */
+    public function countTerminalOlderThan(\DateTimeImmutable $cutoff, ?string $tenantId = null): int;
 }
