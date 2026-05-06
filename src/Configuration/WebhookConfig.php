@@ -45,6 +45,17 @@ final class WebhookConfig
     #[Config(env: 'WEBHOOK_RETENTION_DAYS', default: 30)]
     protected int $retentionDays;
 
+    public function __construct()
+    {
+        $this->defaultTimeoutSeconds      = (int) ($_ENV['WEBHOOK_TIMEOUT_SECONDS'] ?? 30);
+        $this->defaultMaxAttempts         = (int) ($_ENV['WEBHOOK_MAX_ATTEMPTS'] ?? 5);
+        $this->defaultBackoffBaseSeconds  = (int) ($_ENV['WEBHOOK_BACKOFF_BASE_SECONDS'] ?? 10);
+        $this->defaultBackoffMultiplier   = (float) ($_ENV['WEBHOOK_BACKOFF_MULTIPLIER'] ?? 2.0);
+        $this->defaultLeaseSeconds        = (int) ($_ENV['WEBHOOK_LEASE_SECONDS'] ?? 120);
+        $this->defaultDedupeWindowSeconds = (int) ($_ENV['WEBHOOK_DEDUPE_WINDOW_SECONDS'] ?? 86400);
+        $this->retentionDays              = (int) ($_ENV['WEBHOOK_RETENTION_DAYS'] ?? 30);
+    }
+
     public function getDefaultTimeoutSeconds(): int { return $this->defaultTimeoutSeconds; }
     public function getDefaultMaxAttempts(): int { return $this->defaultMaxAttempts; }
     public function getDefaultBackoffBaseSeconds(): int { return $this->defaultBackoffBaseSeconds; }
@@ -87,13 +98,14 @@ final class WebhookConfig
         ?int $retentionDays = null,
     ): self {
         $config = new self();
-        $config->defaultTimeoutSeconds       = $defaultTimeoutSeconds       ?? (int) ($_ENV['WEBHOOK_TIMEOUT_SECONDS'] ?? 30);
-        $config->defaultMaxAttempts          = $defaultMaxAttempts          ?? (int) ($_ENV['WEBHOOK_MAX_ATTEMPTS'] ?? 5);
-        $config->defaultBackoffBaseSeconds   = $defaultBackoffBaseSeconds   ?? (int) ($_ENV['WEBHOOK_BACKOFF_BASE_SECONDS'] ?? 10);
-        $config->defaultBackoffMultiplier    = $defaultBackoffMultiplier    ?? (float) ($_ENV['WEBHOOK_BACKOFF_MULTIPLIER'] ?? 2.0);
-        $config->defaultLeaseSeconds         = $defaultLeaseSeconds         ?? (int) ($_ENV['WEBHOOK_LEASE_SECONDS'] ?? 120);
-        $config->defaultDedupeWindowSeconds  = $defaultDedupeWindowSeconds  ?? (int) ($_ENV['WEBHOOK_DEDUPE_WINDOW_SECONDS'] ?? 86400);
-        $config->retentionDays               = $retentionDays               ?? (int) ($_ENV['WEBHOOK_RETENTION_DAYS'] ?? 30);
+        if ($defaultTimeoutSeconds !== null)      $config->defaultTimeoutSeconds      = $defaultTimeoutSeconds;
+        if ($defaultMaxAttempts !== null)         $config->defaultMaxAttempts         = $defaultMaxAttempts;
+        if ($defaultBackoffBaseSeconds !== null)  $config->defaultBackoffBaseSeconds  = $defaultBackoffBaseSeconds;
+        if ($defaultBackoffMultiplier !== null)   $config->defaultBackoffMultiplier   = $defaultBackoffMultiplier;
+        if ($defaultLeaseSeconds !== null)         $config->defaultLeaseSeconds         = $defaultLeaseSeconds;
+        if ($defaultDedupeWindowSeconds !== null) $config->defaultDedupeWindowSeconds = $defaultDedupeWindowSeconds;
+        if ($retentionDays !== null)              $config->retentionDays              = $retentionDays;
+
         return $config;
     }
 

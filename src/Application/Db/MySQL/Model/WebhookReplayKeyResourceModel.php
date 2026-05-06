@@ -38,7 +38,7 @@ final readonly class WebhookReplayKeyResourceModel
 
     public function __construct(
         #[PrimaryKey(strategy: 'manual')]
-        #[Column(type: MySqlType::Varchar, length: 191)]
+        #[Column(name: 'replay_key', type: MySqlType::Varchar, length: 191)]
         public string $replayKey,
 
         #[Column(name: 'first_seen_at', type: MySqlType::Datetime)]
