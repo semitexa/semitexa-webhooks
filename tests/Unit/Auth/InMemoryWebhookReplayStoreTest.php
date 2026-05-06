@@ -12,7 +12,7 @@ use Semitexa\Webhooks\Auth\InMemoryWebhookReplayStore;
  * Unit tests for InMemoryWebhookReplayStore — pin the atomic
  * markIfFirstSeen contract + TTL behavior.
  *
- * Concurrent-coroutine atomicity is covered by tests/Runtime/ConcurrentCoroutineIsolationTest.
+ * Concurrent-coroutine atomicity is covered by packages/semitexa-authorization/tests/Integration/ConcurrentCoroutineIsolationTest.
  * This file pins the single-threaded behavior that backings inherit from
  * the contract.
  */
