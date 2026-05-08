@@ -35,6 +35,5 @@
         "inbound",
         "outbound",
         "signature-verification"
-    ],
-    "version": "v0.1.3"
+    ]
 }
