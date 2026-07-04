@@ -7,11 +7,17 @@ namespace Semitexa\Webhooks\Application\Db\MySQL\Model;
 use Semitexa\Orm\Adapter\MySqlType;
 use Semitexa\Orm\Attribute\Column;
 use Semitexa\Orm\Attribute\FromTable;
+use Semitexa\Orm\Attribute\Index;
 use Semitexa\Orm\Attribute\PrimaryKey;
+use Semitexa\Orm\Attribute\TenantScoped;
 use Semitexa\Orm\Metadata\HasColumnReferences;
 use Semitexa\Orm\Metadata\HasRelationReferences;
 
 #[FromTable(name: 'webhook_endpoint_definitions')]
+#[Index(columns: ['endpoint_key'], unique: true, name: 'uq_webhook_endpoint_definitions_key')]
+#[Index(columns: ['provider_key', 'direction', 'enabled'], name: 'idx_webhook_endpoint_definitions_provider')]
+#[Index(columns: ['tenant_id', 'direction', 'enabled'], name: 'idx_webhook_endpoint_definitions_tenant')]
+#[TenantScoped(strategy: 'same_storage', column: 'tenantId')]
 final readonly class WebhookEndpointDefinitionResourceModel
 {
     use HasColumnReferences;
