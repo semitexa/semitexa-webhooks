@@ -118,6 +118,17 @@ final class MySqlWebhookReplayStore implements WebhookReplayStoreInterface
         $this->orm->getAdapter()->execute(sprintf('DELETE FROM `%s`', self::TABLE));
     }
 
+    public function isShared(): bool
+    {
+        // One MySQL table observed by every worker — a claim is cross-worker.
+        return true;
+    }
+
+    public function diagnosticName(): string
+    {
+        return 'mysql';
+    }
+
     /**
      * Remove every row whose expires_at is in the past.
      *

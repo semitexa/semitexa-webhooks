@@ -103,4 +103,15 @@ final class RedisWebhookReplayStore implements WebhookReplayStoreInterface
             $redis->flushdb();
         });
     }
+
+    public function isShared(): bool
+    {
+        // One Redis server observed by every worker — a claim is cross-worker.
+        return true;
+    }
+
+    public function diagnosticName(): string
+    {
+        return 'redis';
+    }
 }
