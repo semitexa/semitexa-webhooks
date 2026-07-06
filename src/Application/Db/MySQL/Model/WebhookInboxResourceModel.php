@@ -13,6 +13,10 @@ use Semitexa\Orm\Metadata\HasColumnReferences;
 use Semitexa\Orm\Metadata\HasRelationReferences;
 
 #[FromTable(name: 'webhook_inbox')]
+#[Index(columns: ['provider_key', 'provider_event_id'], name: 'idx_webhook_inbox_provider_event')]
+#[Index(columns: ['status', 'last_received_at'], name: 'idx_webhook_inbox_status_received')]
+#[Index(columns: ['tenant_id', 'status', 'last_received_at'], name: 'idx_webhook_inbox_tenant_status')]
+#[Index(columns: ['endpoint_key', 'status', 'first_received_at'], name: 'idx_webhook_inbox_endpoint_status')]
 #[Index(columns: 'dedupe_key', unique: true, name: 'uniq_webhook_inbox_dedupe_key')]
 final readonly class WebhookInboxResourceModel
 {

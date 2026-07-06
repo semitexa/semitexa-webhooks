@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\Webhooks\Auth;
 
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
+use Semitexa\Core\Discovery\BootDiagnostics;
+use Semitexa\Core\Environment;
 use Semitexa\Core\Lifecycle\TestStateResetRegistry;
 use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
 
@@ -90,12 +92,43 @@ final class InMemoryWebhookReplayStore implements WebhookReplayStoreInterface
         self::$seen = [];
     }
 
+    public function isShared(): bool
+    {
+        // A `static` array is per-PROCESS: each of the N Swoole workers keeps
+        // its own seen-set, so a duplicate delivery on a different worker is
+        // never detected. Not shared.
+        return false;
+    }
+
+    public function diagnosticName(): string
+    {
+        return 'in-memory (worker-local)';
+    }
+
     private static function ensureRegistered(): void
     {
         if (self::$registered) {
             return;
         }
         self::$registered = true;
+
+        // First actual use in a production-like environment is a
+        // misconfiguration worth surfacing: replay protection on a
+        // worker-local store is defeated by worker affinity, so a replayed
+        // (or normally at-least-once redelivered) webhook that hashes to a
+        // different worker is processed twice. Production must bind the
+        // Redis/MySql store. Loud at boot, never a silent security downgrade.
+        $env = strtolower(trim((string) Environment::getEnvValue('APP_ENV', 'prod')));
+        if ($env === 'prod' || $env === 'production') {
+            BootDiagnostics::current()->invalidUsage(
+                'WebhookReplayStore',
+                'the worker-local in-memory webhook replay store is active in a production-like '
+                . 'environment (APP_ENV=' . $env . '); replay/idempotency protection is NOT '
+                . 'shared across Swoole workers and is defeated by worker affinity. Bind '
+                . 'RedisWebhookReplayStore or MySqlWebhookReplayStore.',
+            );
+        }
+
         TestStateResetRegistry::register(
             self::REGISTRY_NAME,
             static function (): void {

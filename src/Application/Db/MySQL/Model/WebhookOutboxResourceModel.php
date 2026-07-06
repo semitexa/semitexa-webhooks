@@ -13,6 +13,10 @@ use Semitexa\Orm\Metadata\HasColumnReferences;
 use Semitexa\Orm\Metadata\HasRelationReferences;
 
 #[FromTable(name: 'webhook_outbox')]
+#[Index(columns: ['status', 'next_attempt_at'], name: 'idx_webhook_outbox_status_next')]
+#[Index(columns: ['tenant_id', 'status', 'next_attempt_at'], name: 'idx_webhook_outbox_tenant_status')]
+#[Index(columns: ['endpoint_key', 'status', 'next_attempt_at'], name: 'idx_webhook_outbox_endpoint_status')]
+#[Index(columns: ['status', 'lease_expires_at'], name: 'idx_webhook_outbox_lease')]
 #[Index(
     columns: ['endpoint_definition_id', 'idempotency_key'],
     unique: true,

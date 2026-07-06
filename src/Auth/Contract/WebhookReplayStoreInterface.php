@@ -69,4 +69,23 @@ interface WebhookReplayStoreInterface
      * may make this a no-op or restrict it to admin tooling.
      */
     public function clear(): void;
+
+    /**
+     * True when a claim is observable across every worker / process sharing
+     * this store. Swoole runs multiple workers, so a per-worker map cannot
+     * detect a duplicate delivery that lands on a different worker — replay
+     * protection is silently defeated by worker affinity. A production
+     * deployment MUST bind a shared (DB/Redis) store; a consumer can guard on
+     * this before trusting a claim, exactly as the platform-ui
+     * UiReplayStoreInterface / UiInteractionDispatcher pair does. Cheap: no IO.
+     */
+    public function isShared(): bool;
+
+    /**
+     * Short human-readable identifier for the active store, e.g.
+     * `"in-memory (worker-local)"` or `"redis"`. Surfaced in boot diagnostics
+     * when a worker-local store is active in a production-like environment.
+     * MUST NOT leak secrets.
+     */
+    public function diagnosticName(): string;
 }

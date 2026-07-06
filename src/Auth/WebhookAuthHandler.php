@@ -57,17 +57,25 @@ final class WebhookAuthHandler implements AuthHandlerInterface
     #[InjectAsReadonly]
     protected TenantContextStoreInterface $tenantStore;
 
+    /**
+     * Per-payload-class receiver attribute, resolved once. This handler runs
+     * early in the auth chain on EVERY request (priority 5), not just webhook
+     * routes, so reflecting the payload class on each request only to find it
+     * ISN'T a webhook is pure waste — the answer is static per class. The
+     * immutable AsWebhookReceiver instance (all-readonly, only read here) is
+     * safe to share across requests.
+     *
+     * @var array<class-string, AsWebhookReceiver|null>
+     */
+    private static array $receiverAttrByClass = [];
+
     public function handle(object $payload): ?AuthResult
     {
-        $reflection = new \ReflectionClass($payload);
-        $attrs = $reflection->getAttributes(AsWebhookReceiver::class);
-        if ($attrs === []) {
+        $attr = $this->receiverAttrFor($payload::class);
+        if ($attr === null) {
             // Not a webhook payload — leave for the next handler.
             return null;
         }
-
-        /** @var AsWebhookReceiver $attr */
-        $attr = $attrs[0]->newInstance();
 
         // Cycle-11: prefer the framework's CurrentRequestStore so any
         // webhook payload works without the setHttpRequest convention.
@@ -110,7 +118,7 @@ final class WebhookAuthHandler implements AuthHandlerInterface
         // class short name for receivers that did not opt into per-receiver
         // service-capability authorization.
         return AuthResult::successAsService(new WebhookPrincipal(
-            endpointKey: $attr->name ?? $reflection->getShortName(),
+            endpointKey: $attr->name ?? self::classShortName($payload::class),
             eventId: $request->getHeader(self::HEADER_EVENT_ID),
             tenantId: $tenantId,
         ));
@@ -124,6 +132,32 @@ final class WebhookAuthHandler implements AuthHandlerInterface
      * Application::handleRequest), so by the time this handler runs the
      * tenant is already either resolved or definitively absent.
      */
+    /**
+     * Resolve (and memoize) the #[AsWebhookReceiver] attribute for a payload
+     * class, or null if it carries none. Reflection runs once per class per
+     * worker; every subsequent request reuses the cached result.
+     *
+     * @param class-string $class
+     */
+    private function receiverAttrFor(string $class): ?AsWebhookReceiver
+    {
+        if (array_key_exists($class, self::$receiverAttrByClass)) {
+            return self::$receiverAttrByClass[$class];
+        }
+
+        $attrs = (new \ReflectionClass($class))->getAttributes(AsWebhookReceiver::class);
+
+        return self::$receiverAttrByClass[$class] = $attrs === [] ? null : $attrs[0]->newInstance();
+    }
+
+    /** Class short name without reflection (the receiver-name fallback). */
+    private static function classShortName(string $class): string
+    {
+        $pos = strrpos($class, '\\');
+
+        return $pos === false ? $class : substr($class, $pos + 1);
+    }
+
     private function resolveTenantId(): ?string
     {
         if (!isset($this->tenantStore)) {

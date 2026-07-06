@@ -7,11 +7,15 @@ namespace Semitexa\Webhooks\Application\Db\MySQL\Model;
 use Semitexa\Orm\Adapter\MySqlType;
 use Semitexa\Orm\Attribute\Column;
 use Semitexa\Orm\Attribute\FromTable;
+use Semitexa\Orm\Attribute\Index;
 use Semitexa\Orm\Attribute\PrimaryKey;
 use Semitexa\Orm\Metadata\HasColumnReferences;
 use Semitexa\Orm\Metadata\HasRelationReferences;
 
 #[FromTable(name: 'webhook_attempts')]
+#[Index(columns: ['direction', 'inbox_id', 'created_at'], name: 'idx_webhook_attempts_inbound')]
+#[Index(columns: ['direction', 'outbox_id', 'created_at'], name: 'idx_webhook_attempts_outbound')]
+#[Index(columns: ['event_type', 'created_at'], name: 'idx_webhook_attempts_event')]
 final readonly class WebhookAttemptResourceModel
 {
     use HasColumnReferences;
