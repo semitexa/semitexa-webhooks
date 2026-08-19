@@ -181,6 +181,31 @@ final class MySqlWebhookReplayStoreTest extends TestCase
     }
 
     #[Test]
+    public function tenant_scoped_cleanup_treats_like_wildcards_in_the_tenant_id_as_literals(): void
+    {
+        // A tenant id containing `%` must match itself only — an unescaped
+        // LIKE pattern would widen `tenant:%:` onto EVERY tenant's keys.
+        $this->store->markIfFirstSeen('tenant:%:evt-wild', 1);
+        $this->store->markIfFirstSeen('tenant:acme:evt-other', 1);
+        $this->store->markIfFirstSeen('tenant:a_c:evt-underscore', 1);
+        sleep(2);
+
+        self::assertSame(1, $this->store->countExpired(tenantId: '%'), 'count must not widen onto other tenants');
+        $deleted = $this->store->cleanupExpired(tenantId: '%');
+
+        self::assertSame(1, $deleted, 'only the literal `%` tenant expired-key may be deleted');
+        self::assertFalse($this->store->seen('tenant:%:evt-wild'));
+        self::assertTrue($this->store->seen('tenant:acme:evt-other'), 'another tenant\'s key was swept by the wildcard');
+        self::assertTrue($this->store->seen('tenant:a_c:evt-underscore'), 'another tenant\'s key was swept by the wildcard');
+
+        // `_` matches any single char unescaped: tenant `a_c` must not sweep `abc`.
+        $this->store->markIfFirstSeen('tenant:abc:evt-single', 1);
+        sleep(2);
+        self::assertSame(1, $this->store->cleanupExpired(tenantId: 'a_c'), 'underscore must be literal');
+        self::assertTrue($this->store->seen('tenant:abc:evt-single'), 'tenant abc swept by an unescaped `_`');
+    }
+
+    #[Test]
     public function key_freed_by_cleanupExpired_can_be_reclaimed(): void
     {
         $this->store->markIfFirstSeen('replay-test-recycle', 1);

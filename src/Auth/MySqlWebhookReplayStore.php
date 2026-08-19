@@ -156,8 +156,8 @@ final class MySqlWebhookReplayStore implements WebhookReplayStoreInterface
         $sql = sprintf('DELETE FROM `%s` WHERE expires_at IS NOT NULL AND expires_at <= :now', self::TABLE);
         $params = ['now' => $now->format('Y-m-d H:i:s')];
         if ($tenantId !== null) {
-            $sql .= ' AND replay_key LIKE :tenant_prefix';
-            $params['tenant_prefix'] = self::tenantKeyPrefix($tenantId) . '%';
+            $sql .= " AND replay_key LIKE :tenant_prefix ESCAPE '!'";
+            $params['tenant_prefix'] = self::likeEscape(self::tenantKeyPrefix($tenantId)) . '%';
         }
         if ($limit !== null && $limit > 0) {
             $sql .= ' LIMIT ' . $limit;
@@ -180,8 +180,8 @@ final class MySqlWebhookReplayStore implements WebhookReplayStoreInterface
         );
         $params = ['now' => $now->format('Y-m-d H:i:s')];
         if ($tenantId !== null) {
-            $sql .= ' AND replay_key LIKE :tenant_prefix';
-            $params['tenant_prefix'] = self::tenantKeyPrefix($tenantId) . '%';
+            $sql .= " AND replay_key LIKE :tenant_prefix ESCAPE '!'";
+            $params['tenant_prefix'] = self::likeEscape(self::tenantKeyPrefix($tenantId)) . '%';
         }
         $row = $this->orm->getAdapter()->execute($sql, $params)->fetchOne();
         return (int) ($row['c'] ?? 0);
@@ -195,5 +195,17 @@ final class MySqlWebhookReplayStore implements WebhookReplayStoreInterface
     private static function tenantKeyPrefix(string $tenantId): string
     {
         return 'tenant:' . $tenantId . ':';
+    }
+
+    /**
+     * Neutralize LIKE wildcards in a literal prefix. A tenant id containing
+     * `%` or `_` must match itself, not widen the pattern onto other tenants'
+     * keys. `!` is the ESCAPE character declared in the queries above —
+     * chosen over backslash because MySQL and SQLite disagree on whether a
+     * backslash in a string literal is itself an escape.
+     */
+    private static function likeEscape(string $literal): string
+    {
+        return str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $literal);
     }
 }
