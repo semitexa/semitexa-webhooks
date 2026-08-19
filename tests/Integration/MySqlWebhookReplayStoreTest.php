@@ -203,6 +203,15 @@ final class MySqlWebhookReplayStoreTest extends TestCase
         sleep(2);
         self::assertSame(1, $this->store->cleanupExpired(tenantId: 'a_c'), 'underscore must be literal');
         self::assertTrue($this->store->seen('tenant:abc:evt-single'), 'tenant abc swept by an unescaped `_`');
+
+        // `!` is the ESCAPE character itself — a tenant id containing it must
+        // be doubled by likeEscape, not corrupt the pattern.
+        $this->store->markIfFirstSeen('tenant:bang!!:evt-escape', 1);
+        sleep(2);
+        self::assertSame(1, $this->store->countExpired(tenantId: 'bang!!'), 'escape char in the tenant id must stay literal');
+        self::assertSame(1, $this->store->cleanupExpired(tenantId: 'bang!!'));
+        self::assertFalse($this->store->seen('tenant:bang!!:evt-escape'));
+        self::assertTrue($this->store->seen('tenant:abc:evt-single'), 'other tenants untouched by the bang cleanup');
     }
 
     #[Test]
