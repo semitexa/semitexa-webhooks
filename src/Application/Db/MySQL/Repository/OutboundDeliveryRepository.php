@@ -19,6 +19,9 @@ use Semitexa\Webhooks\Domain\Enum\OutboundStatus;
 #[SatisfiesRepositoryContract(of: OutboundDeliveryRepositoryInterface::class)]
 final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInterface
 {
+    /** MySQL's error code for a duplicate entry on a unique or primary key. */
+    private const MYSQL_DUPLICATE_ENTRY = 1062;
+
     #[InjectAsReadonly]
     protected OrmManager $orm;
 
@@ -399,12 +402,47 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
         )));
     }
 
+    /**
+     * A unique/primary-key collision specifically — NOT any integrity
+     * violation. SQLSTATE 23000 also covers foreign-key failures (MySQL 1451
+     * and 1452), and treating one of those as "someone else won the race"
+     * would swallow a real schema failure, so the driver error code decides:
+     * MySQL reports 1062 for a duplicate entry.
+     *
+     * The exception may arrive in several shapes — the ORM's typed
+     * ConstraintViolationException (which carries sqlState/driverCode and
+     * chains the PDOException), a raw PDOException, or either of them wrapped
+     * by a generic rethrow — so the chain is walked rather than the outermost
+     * checked.
+     */
     private function isDuplicateKeyException(\Throwable $e): bool
     {
-        if ($e instanceof \PDOException && (string) $e->getCode() === '23000') {
-            return true;
+        for ($current = $e; $current !== null; $current = $current->getPrevious()) {
+            // The typed ORM exception, when running against an ORM version
+            // that classifies. instanceof against a class the installed ORM
+            // does not define is simply false — no error, no autoload.
+            if ($current instanceof \Semitexa\Orm\Exception\ConstraintViolationException
+                && $current->driverCode === self::MYSQL_DUPLICATE_ENTRY) {
+                return true;
+            }
+
+            if ($current instanceof \PDOException
+                && ($current->errorInfo[1] ?? null) === self::MYSQL_DUPLICATE_ENTRY) {
+                return true;
+            }
+
+            // Message fallback for drivers that carry no usable code: MySQL
+            // says "Duplicate entry", PostgreSQL "duplicate key value",
+            // SQLite "UNIQUE constraint failed". Foreign-key failures say
+            // "foreign key constraint fails" and match none of these, which
+            // is the distinction that matters here.
+            $message = strtolower($current->getMessage());
+            if (str_contains($message, 'duplicate')
+                || str_contains($message, 'unique constraint failed')) {
+                return true;
+            }
         }
 
-        return str_contains(strtolower($e->getMessage()), 'duplicate');
+        return false;
     }
 }
