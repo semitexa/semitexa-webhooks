@@ -401,6 +401,14 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
 
     private function isDuplicateKeyException(\Throwable $e): bool
     {
+        // The ORM classifies SQLSTATE 23xxx into a typed exception with the
+        // original PDOException chained underneath — the raw-PDOException
+        // branch below now only fires for adapters that do not classify
+        // (SQLite) and for non-ORM callers.
+        if ($e instanceof \Semitexa\Orm\Exception\ConstraintViolationException && $e->sqlState === '23000') {
+            return true;
+        }
+
         if ($e instanceof \PDOException && (string) $e->getCode() === '23000') {
             return true;
         }
