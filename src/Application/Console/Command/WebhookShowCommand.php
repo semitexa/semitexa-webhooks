@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Console\Command;
 
+use Psr\Container\ContainerInterface;
 use Semitexa\Core\Attribute\AsCommand;
-use Semitexa\Core\Container\ContainerFactory;
+use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Webhooks\Domain\Contract\InboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\OutboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookAttemptRepositoryInterface;
@@ -20,6 +21,17 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 #[AsCommand(name: 'webhook:show', description: 'Display webhook endpoint, inbox, or outbox details')]
 final class WebhookShowCommand extends Command
 {
+    /**
+     * Injected rather than reached for statically. The services below are still
+     * resolved lazily inside the command body, and deliberately so: every
+     * #[AsCommand] class is instantiated and injected at console boot, so
+     * injecting a repository directly would open its connection on every
+     * `bin/semitexa` invocation — and a dependency that failed to build would
+     * make this command vanish from the list instead of reporting the failure.
+     */
+    #[InjectAsReadonly]
+    protected ContainerInterface $container;
+
     protected function configure(): void
     {
         $this
@@ -57,7 +69,7 @@ final class WebhookShowCommand extends Command
         $id = $input->getArgument('id');
 
         try {
-            $container = ContainerFactory::get();
+            $container = $this->container;
 
             return match ($type) {
                 'endpoints' => $this->showEndpoints($container, $io, $id),

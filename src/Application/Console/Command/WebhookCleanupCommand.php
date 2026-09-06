@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Console\Command;
 
+use Psr\Container\ContainerInterface;
 use Semitexa\Core\Attribute\AsCommand;
-use Semitexa\Core\Container\ContainerFactory;
+use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Webhooks\Application\Service\WebhookRetentionService;
 use Semitexa\Webhooks\Auth\MySqlWebhookReplayStore;
 use Symfony\Component\Console\Command\Command;
@@ -41,6 +42,17 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 #[AsCommand(name: 'webhook:cleanup', description: 'Purge expired webhook persistence rows (replay keys, inbox, outbox, attempts)')]
 final class WebhookCleanupCommand extends Command
 {
+    /**
+     * Injected rather than reached for statically. The services below are still
+     * resolved lazily inside the command body, and deliberately so: every
+     * #[AsCommand] class is instantiated and injected at console boot, so
+     * injecting a repository directly would open its connection on every
+     * `bin/semitexa` invocation — and a dependency that failed to build would
+     * make this command vanish from the list instead of reporting the failure.
+     */
+    #[InjectAsReadonly]
+    protected ContainerInterface $container;
+
     protected function configure(): void
     {
         $this
@@ -95,7 +107,7 @@ final class WebhookCleanupCommand extends Command
         }
 
         try {
-            $container = ContainerFactory::get();
+            $container = $this->container;
             $service = $container->get(WebhookRetentionService::class);
             $summary = $service->purge($batchSize, $dryRun, $retentionOverride, $tenantId);
         } catch (\Throwable $e) {
@@ -157,7 +169,7 @@ final class WebhookCleanupCommand extends Command
     private function cleanupReplayKeys(SymfonyStyle $io, bool $dryRun, int $batchSize, ?string $tenantId = null): string
     {
         try {
-            $store = ContainerFactory::get()->get(MySqlWebhookReplayStore::class);
+            $store = $this->container->get(MySqlWebhookReplayStore::class);
         } catch (\Throwable) {
             $io->writeln('<comment>Replay store: no MySQL backing wired (Redis TTL or in-memory) — skipped.</comment>');
             return '— (no MySQL backing)';
