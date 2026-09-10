@@ -87,7 +87,12 @@ final class WebhookConfig
         ?int $defaultDedupeWindowSeconds = null,
         ?int $retentionDays = null,
     ): self {
-        $config = new self();
+        // From the environment, not from the property defaults. The property
+        // defaults exist so `new self()` is a valid object for the container to
+        // fill; this helper's documented contract is that fields you do not
+        // pin keep reading the environment, and a partial call
+        // (withOverrides(retentionDays: 7)) must not silently reset the rest.
+        $config = self::fromEnvironment();
         if ($defaultTimeoutSeconds !== null)      $config->defaultTimeoutSeconds      = $defaultTimeoutSeconds;
         if ($defaultMaxAttempts !== null)         $config->defaultMaxAttempts         = $defaultMaxAttempts;
         if ($defaultBackoffBaseSeconds !== null)  $config->defaultBackoffBaseSeconds  = $defaultBackoffBaseSeconds;
@@ -114,16 +119,17 @@ final class WebhookConfig
     {
         $int = static fn(string $key, int $fallback): int => isset($_ENV[$key]) ? (int) $_ENV[$key] : $fallback;
 
-        return self::withOverrides(
-            defaultTimeoutSeconds: $int('WEBHOOK_TIMEOUT_SECONDS', 30),
-            defaultMaxAttempts: $int('WEBHOOK_MAX_ATTEMPTS', 5),
-            defaultBackoffBaseSeconds: $int('WEBHOOK_BACKOFF_BASE_SECONDS', 10),
-            defaultBackoffMultiplier: isset($_ENV['WEBHOOK_BACKOFF_MULTIPLIER'])
-                ? (float) $_ENV['WEBHOOK_BACKOFF_MULTIPLIER']
-                : 2.0,
-            defaultLeaseSeconds: $int('WEBHOOK_LEASE_SECONDS', 120),
-            defaultDedupeWindowSeconds: $int('WEBHOOK_DEDUPE_WINDOW_SECONDS', 86400),
-            retentionDays: $int('WEBHOOK_RETENTION_DAYS', 30),
-        );
+        $config = new self();
+        $config->defaultTimeoutSeconds = $int('WEBHOOK_TIMEOUT_SECONDS', 30);
+        $config->defaultMaxAttempts = $int('WEBHOOK_MAX_ATTEMPTS', 5);
+        $config->defaultBackoffBaseSeconds = $int('WEBHOOK_BACKOFF_BASE_SECONDS', 10);
+        $config->defaultBackoffMultiplier = isset($_ENV['WEBHOOK_BACKOFF_MULTIPLIER'])
+            ? (float) $_ENV['WEBHOOK_BACKOFF_MULTIPLIER']
+            : 2.0;
+        $config->defaultLeaseSeconds = $int('WEBHOOK_LEASE_SECONDS', 120);
+        $config->defaultDedupeWindowSeconds = $int('WEBHOOK_DEDUPE_WINDOW_SECONDS', 86400);
+        $config->retentionDays = $int('WEBHOOK_RETENTION_DAYS', 30);
+
+        return $config;
     }
 }
