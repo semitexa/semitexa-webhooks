@@ -7,6 +7,7 @@ namespace Semitexa\Webhooks\Tests\Unit\Outbound;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Semitexa\Webhooks\Application\Db\MySQL\Repository\OutboundDeliveryRepository;
+use Semitexa\Testing\Traits\BuildsContainerManagedObjects;
 
 /**
  * The lock repository treats a duplicate key as "another worker won the race
@@ -21,6 +22,8 @@ use Semitexa\Webhooks\Application\Db\MySQL\Repository\OutboundDeliveryRepository
  */
 final class DuplicateKeyDetectionTest extends TestCase
 {
+    use BuildsContainerManagedObjects;
+
     #[Test]
     public function a_duplicate_key_is_recognized_in_every_exception_shape(): void
     {
@@ -66,7 +69,7 @@ final class DuplicateKeyDetectionTest extends TestCase
         // The detector is an instance method but touches no state; the
         // repository's real dependencies are injected properties, so an
         // uninitialized instance is enough to exercise it.
-        $repository = (new \ReflectionClass(OutboundDeliveryRepository::class))->newInstanceWithoutConstructor();
+        $repository = self::createWithDependencies(OutboundDeliveryRepository::class);
         $method = new \ReflectionMethod(OutboundDeliveryRepository::class, 'isDuplicateKeyException');
 
         return (bool) $method->invoke($repository, $e);

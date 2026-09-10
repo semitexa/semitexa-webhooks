@@ -14,6 +14,9 @@
         "semitexa/core": "*",
         "semitexa/orm": "*"
     },
+    "require-dev": {
+        "semitexa/testing": "*"
+    },
     "autoload": {
         "psr-4": {
             "Semitexa\\Webhooks\\": "src/"

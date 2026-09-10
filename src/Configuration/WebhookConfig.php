@@ -25,36 +25,26 @@ use Semitexa\Core\Attribute\Config;
 final class WebhookConfig
 {
     #[Config(env: 'WEBHOOK_TIMEOUT_SECONDS', default: 30)]
-    protected int $defaultTimeoutSeconds;
+    protected int $defaultTimeoutSeconds = 30;
 
     #[Config(env: 'WEBHOOK_MAX_ATTEMPTS', default: 5)]
-    protected int $defaultMaxAttempts;
+    protected int $defaultMaxAttempts = 5;
 
     #[Config(env: 'WEBHOOK_BACKOFF_BASE_SECONDS', default: 10)]
-    protected int $defaultBackoffBaseSeconds;
+    protected int $defaultBackoffBaseSeconds = 10;
 
     #[Config(env: 'WEBHOOK_BACKOFF_MULTIPLIER', default: 2.0)]
-    protected float $defaultBackoffMultiplier;
+    protected float $defaultBackoffMultiplier = 2.0;
 
     #[Config(env: 'WEBHOOK_LEASE_SECONDS', default: 120)]
-    protected int $defaultLeaseSeconds;
+    protected int $defaultLeaseSeconds = 120;
 
     #[Config(env: 'WEBHOOK_DEDUPE_WINDOW_SECONDS', default: 86400)]
-    protected int $defaultDedupeWindowSeconds;
+    protected int $defaultDedupeWindowSeconds = 86400;
 
     #[Config(env: 'WEBHOOK_RETENTION_DAYS', default: 30)]
-    protected int $retentionDays;
+    protected int $retentionDays = 30;
 
-    public function __construct()
-    {
-        $this->defaultTimeoutSeconds      = (int) ($_ENV['WEBHOOK_TIMEOUT_SECONDS'] ?? 30);
-        $this->defaultMaxAttempts         = (int) ($_ENV['WEBHOOK_MAX_ATTEMPTS'] ?? 5);
-        $this->defaultBackoffBaseSeconds  = (int) ($_ENV['WEBHOOK_BACKOFF_BASE_SECONDS'] ?? 10);
-        $this->defaultBackoffMultiplier   = (float) ($_ENV['WEBHOOK_BACKOFF_MULTIPLIER'] ?? 2.0);
-        $this->defaultLeaseSeconds        = (int) ($_ENV['WEBHOOK_LEASE_SECONDS'] ?? 120);
-        $this->defaultDedupeWindowSeconds = (int) ($_ENV['WEBHOOK_DEDUPE_WINDOW_SECONDS'] ?? 86400);
-        $this->retentionDays              = (int) ($_ENV['WEBHOOK_RETENTION_DAYS'] ?? 30);
-    }
 
     public function getDefaultTimeoutSeconds(): int { return $this->defaultTimeoutSeconds; }
     public function getDefaultMaxAttempts(): int { return $this->defaultMaxAttempts; }
@@ -109,8 +99,31 @@ final class WebhookConfig
         return $config;
     }
 
+    /**
+     * Read the environment explicitly, because nothing else here does.
+     *
+     * This used to be `withOverrides()` with no arguments, relying on a
+     * constructor to pull $_ENV. The container never calls that constructor — it
+     * builds container-managed classes with newInstanceWithoutConstructor() — so
+     * under the container these values came from #[Config] and the constructor
+     * was a second, unused implementation of the same thing. It is now one
+     * implementation per caller: #[Config] for the container, this for anyone
+     * asking for an env-derived config directly.
+     */
     public static function fromEnvironment(): self
     {
-        return self::withOverrides();
+        $int = static fn(string $key, int $fallback): int => isset($_ENV[$key]) ? (int) $_ENV[$key] : $fallback;
+
+        return self::withOverrides(
+            defaultTimeoutSeconds: $int('WEBHOOK_TIMEOUT_SECONDS', 30),
+            defaultMaxAttempts: $int('WEBHOOK_MAX_ATTEMPTS', 5),
+            defaultBackoffBaseSeconds: $int('WEBHOOK_BACKOFF_BASE_SECONDS', 10),
+            defaultBackoffMultiplier: isset($_ENV['WEBHOOK_BACKOFF_MULTIPLIER'])
+                ? (float) $_ENV['WEBHOOK_BACKOFF_MULTIPLIER']
+                : 2.0,
+            defaultLeaseSeconds: $int('WEBHOOK_LEASE_SECONDS', 120),
+            defaultDedupeWindowSeconds: $int('WEBHOOK_DEDUPE_WINDOW_SECONDS', 86400),
+            retentionDays: $int('WEBHOOK_RETENTION_DAYS', 30),
+        );
     }
 }
