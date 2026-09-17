@@ -41,7 +41,7 @@ final class InboundWebhookReceiver
             throw new \RuntimeException("Unknown webhook endpoint: {$envelope->endpointKey}");
         }
 
-        if (!$endpoint->enabled) {
+        if (!$endpoint->isEnabled()) {
             throw new \RuntimeException("Webhook endpoint is disabled: {$envelope->endpointKey}");
         }
 
@@ -49,8 +49,8 @@ final class InboundWebhookReceiver
         $verificationInput = new WebhookVerificationInput(
             headers: $envelope->headers,
             rawBody: $envelope->rawBody,
-            secretRef: $endpoint->secretRef,
-            verificationMode: $endpoint->verificationMode,
+            secretRef: $endpoint->getSecretRef(),
+            verificationMode: $endpoint->getVerificationMode(),
         );
 
         $verificationResult = $this->verifier->verify($verificationInput);
@@ -59,21 +59,21 @@ final class InboundWebhookReceiver
         $providerEventId = $this->extractProviderEventId($envelope);
         $rawBodySha256 = hash('sha256', $envelope->rawBody);
         $dedupeKey = $this->dedupeKeyFactory->generate(
-            $endpoint->providerKey,
-            $endpoint->endpointKey,
+            $endpoint->getProviderKey(),
+            $endpoint->getEndpointKey(),
             $providerEventId,
             $envelope->rawBody,
-            $endpoint->tenantId,
+            $endpoint->getTenantId(),
         );
 
         // 4. Build inbound delivery
         $now = new \DateTimeImmutable();
         $delivery = new InboundDelivery(
             id: Uuid7::generate(),
-            endpointDefinitionId: $endpoint->id,
-            providerKey: $endpoint->providerKey,
-            endpointKey: $endpoint->endpointKey,
-            tenantId: $endpoint->tenantId,
+            endpointDefinitionId: $endpoint->getId(),
+            providerKey: $endpoint->getProviderKey(),
+            endpointKey: $endpoint->getEndpointKey(),
+            tenantId: $endpoint->getTenantId(),
             providerEventId: $providerEventId,
             dedupeKey: $dedupeKey,
             signatureStatus: $verificationResult->verified ? SignatureStatus::Verified : SignatureStatus::Rejected,

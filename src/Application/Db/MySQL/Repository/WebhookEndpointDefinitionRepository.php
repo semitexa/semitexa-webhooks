@@ -49,7 +49,7 @@ final class WebhookEndpointDefinitionRepository implements WebhookEndpointDefini
             ));
         }
 
-        if ($this->findById($entity->id) === null) {
+        if ($this->findById($entity->getId()) === null) {
             $this->system()->insert($entity);
             return;
         }

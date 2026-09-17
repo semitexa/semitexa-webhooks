@@ -30,16 +30,16 @@ final class WebhookPublisher implements WebhookPublisherInterface
             throw new \RuntimeException("Unknown webhook endpoint: {$message->endpointKey}");
         }
 
-        if (!$endpoint->enabled) {
+        if (!$endpoint->isEnabled()) {
             throw new \RuntimeException("Webhook endpoint is disabled: {$message->endpointKey}");
         }
 
         $delivery = new OutboundDelivery(
             id: Uuid7::generate(),
-            endpointDefinitionId: $endpoint->id,
-            endpointKey: $endpoint->endpointKey,
-            providerKey: $endpoint->providerKey,
-            tenantId: $endpoint->tenantId,
+            endpointDefinitionId: $endpoint->getId(),
+            endpointKey: $endpoint->getEndpointKey(),
+            providerKey: $endpoint->getProviderKey(),
+            tenantId: $endpoint->getTenantId(),
             eventType: $message->eventType,
             status: OutboundStatus::Pending,
             idempotencyKey: $message->idempotencyKey,
@@ -47,9 +47,9 @@ final class WebhookPublisher implements WebhookPublisherInterface
             headersJson: $message->headers !== [] ? json_encode($message->headers, JSON_THROW_ON_ERROR) : null,
             signedHeadersJson: null,
             nextAttemptAt: new \DateTimeImmutable(),
-            maxAttempts: $endpoint->maxAttempts,
-            initialBackoffSeconds: $endpoint->initialBackoffSeconds,
-            maxBackoffSeconds: $endpoint->maxBackoffSeconds,
+            maxAttempts: $endpoint->getMaxAttempts(),
+            initialBackoffSeconds: $endpoint->getInitialBackoffSeconds(),
+            maxBackoffSeconds: $endpoint->getMaxBackoffSeconds(),
             sourceRef: $message->sourceRef,
         );
 

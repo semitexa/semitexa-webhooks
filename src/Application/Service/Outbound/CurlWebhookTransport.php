@@ -27,7 +27,7 @@ final class CurlWebhookTransport implements WebhookTransportInterface
             return TransportResult::failure(null, "Endpoint not found: {$delivery->getEndpointKey()}");
         }
 
-        if ($endpoint->targetUrl === null || $endpoint->targetUrl === '') {
+        if ($endpoint->getTargetUrl() === null || $endpoint->getTargetUrl() === '') {
             return TransportResult::failure(null, "No target URL configured for endpoint: {$delivery->getEndpointKey()}");
         }
 
@@ -37,8 +37,8 @@ final class CurlWebhookTransport implements WebhookTransportInterface
         $headers = ['Content-Type: application/json'];
 
         // Default headers from endpoint definition
-        if ($endpoint->defaultHeaders !== null) {
-            foreach ($endpoint->defaultHeaders as $key => $value) {
+        if ($endpoint->getDefaultHeaders() !== null) {
+            foreach ($endpoint->getDefaultHeaders() as $key => $value) {
                 $headers[] = "{$key}: {$value}";
             }
         }
@@ -54,8 +54,8 @@ final class CurlWebhookTransport implements WebhookTransportInterface
         }
 
         // Sign request if configured
-        if ($endpoint->signingMode !== null && $endpoint->secretRef !== null) {
-            $signedHeaders = $this->signer->sign($body, $endpoint->secretRef, 'sha256');
+        if ($endpoint->getSigningMode() !== null && $endpoint->getSecretRef() !== null) {
+            $signedHeaders = $this->signer->sign($body, $endpoint->getSecretRef(), 'sha256');
             foreach ($signedHeaders as $key => $value) {
                 $headers[] = "{$key}: {$value}";
             }
@@ -63,13 +63,13 @@ final class CurlWebhookTransport implements WebhookTransportInterface
 
         $ch = curl_init();
         curl_setopt_array($ch, [
-            CURLOPT_URL => $endpoint->targetUrl,
+            CURLOPT_URL => $endpoint->getTargetUrl(),
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $body,
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => $endpoint->timeoutSeconds,
-            CURLOPT_CONNECTTIMEOUT => min(10, $endpoint->timeoutSeconds),
+            CURLOPT_TIMEOUT => $endpoint->getTimeoutSeconds(),
+            CURLOPT_CONNECTTIMEOUT => min(10, $endpoint->getTimeoutSeconds()),
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_HEADER => true,
         ]);

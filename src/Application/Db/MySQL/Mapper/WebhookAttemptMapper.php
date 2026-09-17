@@ -42,19 +42,19 @@ final class WebhookAttemptMapper implements ResourceModelMapperInterface
         $domainModel instanceof WebhookAttempt || throw new \InvalidArgumentException('Unexpected domain model.');
 
         return new WebhookAttemptResourceModel(
-            id: $domainModel->id,
-            direction: $domainModel->direction->value,
-            inboxId: $domainModel->inboxId,
-            outboxId: $domainModel->outboxId,
-            eventType: $domainModel->eventType,
-            attemptNumber: $domainModel->attemptNumber,
-            statusBefore: $domainModel->statusBefore,
-            statusAfter: $domainModel->statusAfter,
-            workerId: $domainModel->workerId,
-            httpStatus: $domainModel->httpStatus,
-            message: $domainModel->message,
-            detailsJson: $domainModel->details !== null ? json_encode($domainModel->details, JSON_THROW_ON_ERROR) : null,
-            createdAt: $domainModel->createdAt,
+            id: $domainModel->getId(),
+            direction: $domainModel->getDirection()->value,
+            inboxId: $domainModel->getInboxId(),
+            outboxId: $domainModel->getOutboxId(),
+            eventType: $domainModel->getEventType(),
+            attemptNumber: $domainModel->getAttemptNumber(),
+            statusBefore: $domainModel->getStatusBefore(),
+            statusAfter: $domainModel->getStatusAfter(),
+            workerId: $domainModel->getWorkerId(),
+            httpStatus: $domainModel->getHttpStatus(),
+            message: $domainModel->getMessage(),
+            detailsJson: $domainModel->getDetails() !== null ? json_encode($domainModel->getDetails(), JSON_THROW_ON_ERROR) : null,
+            createdAt: $domainModel->getCreatedAt(),
         );
     }
 }

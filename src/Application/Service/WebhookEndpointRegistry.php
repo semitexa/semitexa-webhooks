@@ -16,7 +16,7 @@ final class WebhookEndpointRegistry implements WebhookEndpointRegistryInterface
 
     public function register(WebhookEndpointDefinition $definition): void
     {
-        $this->endpoints[$definition->endpointKey] = $definition;
+        $this->endpoints[$definition->getEndpointKey()] = $definition;
     }
 
     public function all(): array
