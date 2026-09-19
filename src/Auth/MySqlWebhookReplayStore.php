@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Auth;
 
+use Semitexa\Orm\Adapter\SqlIdentifier;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
 
@@ -67,7 +68,7 @@ final class MySqlWebhookReplayStore implements WebhookReplayStoreInterface
 
     public function seen(string $key): bool
     {
-        $sql = sprintf('SELECT 1 FROM `%s` WHERE replay_key = :key LIMIT 1', self::TABLE);
+        $sql = sprintf('SELECT 1 FROM %s WHERE replay_key = :key LIMIT 1', SqlIdentifier::quote(self::TABLE));
         $result = $this->orm->getAdapter()->execute($sql, ['key' => $key]);
         return $result->fetchOne() !== null;
     }
@@ -79,8 +80,8 @@ final class MySqlWebhookReplayStore implements WebhookReplayStoreInterface
         // markIfFirstSeen but discarding the result.
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $sql = sprintf(
-            'INSERT IGNORE INTO `%s` (replay_key, first_seen_at, expires_at) VALUES (:key, :first_seen_at, NULL)',
-            self::TABLE,
+            'INSERT IGNORE INTO %s (replay_key, first_seen_at, expires_at) VALUES (:key, :first_seen_at, NULL)',
+            SqlIdentifier::quote(self::TABLE),
         );
         $this->orm->getAdapter()->execute($sql, [
             'key'            => $key,
@@ -94,8 +95,8 @@ final class MySqlWebhookReplayStore implements WebhookReplayStoreInterface
         $expiresAt = $ttlSeconds !== null ? $now->modify('+' . max(0, $ttlSeconds) . ' seconds') : null;
 
         $sql = sprintf(
-            'INSERT IGNORE INTO `%s` (replay_key, first_seen_at, expires_at) VALUES (:key, :first_seen_at, :expires_at)',
-            self::TABLE,
+            'INSERT IGNORE INTO %s (replay_key, first_seen_at, expires_at) VALUES (:key, :first_seen_at, :expires_at)',
+            SqlIdentifier::quote(self::TABLE),
         );
         $result = $this->orm->getAdapter()->execute($sql, [
             'key'            => $key,
@@ -115,7 +116,7 @@ final class MySqlWebhookReplayStore implements WebhookReplayStoreInterface
      */
     public function clear(): void
     {
-        $this->orm->getAdapter()->execute(sprintf('DELETE FROM `%s`', self::TABLE));
+        $this->orm->getAdapter()->execute(sprintf('DELETE FROM %s', SqlIdentifier::quote(self::TABLE)));
     }
 
     public function isShared(): bool
@@ -153,7 +154,7 @@ final class MySqlWebhookReplayStore implements WebhookReplayStoreInterface
     public function cleanupExpired(?\DateTimeImmutable $now = null, ?int $limit = null, ?string $tenantId = null): int
     {
         $now ??= new \DateTimeImmutable();
-        $sql = sprintf('DELETE FROM `%s` WHERE expires_at IS NOT NULL AND expires_at <= :now', self::TABLE);
+        $sql = sprintf('DELETE FROM %s WHERE expires_at IS NOT NULL AND expires_at <= :now', SqlIdentifier::quote(self::TABLE));
         $params = ['now' => $now->format('Y-m-d H:i:s')];
         if ($tenantId !== null) {
             $sql .= " AND replay_key LIKE :tenant_prefix ESCAPE '!'";
@@ -175,8 +176,8 @@ final class MySqlWebhookReplayStore implements WebhookReplayStoreInterface
     {
         $now ??= new \DateTimeImmutable();
         $sql = sprintf(
-            'SELECT COUNT(*) AS c FROM `%s` WHERE expires_at IS NOT NULL AND expires_at <= :now',
-            self::TABLE,
+            'SELECT COUNT(*) AS c FROM %s WHERE expires_at IS NOT NULL AND expires_at <= :now',
+            SqlIdentifier::quote(self::TABLE),
         );
         $params = ['now' => $now->format('Y-m-d H:i:s')];
         if ($tenantId !== null) {

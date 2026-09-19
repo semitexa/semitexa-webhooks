@@ -95,16 +95,16 @@ final class WebhookShowCommand extends Command
                 return Command::FAILURE;
             }
             $io->definitionList(
-                ['ID' => $endpoint->id],
-                ['Endpoint Key' => $endpoint->endpointKey],
-                ['Direction' => $endpoint->direction->value],
-                ['Provider' => $endpoint->providerKey],
-                ['Enabled' => $endpoint->enabled ? 'Yes' : 'No'],
-                ['Target URL' => $endpoint->targetUrl ?? '(none)'],
-                ['Verification' => $endpoint->verificationMode ?? '(none)'],
-                ['Secret Ref' => $endpoint->secretRef !== null ? '***' . substr($endpoint->secretRef, -4) : '(none)'],
-                ['Max Attempts' => (string) $endpoint->maxAttempts],
-                ['Timeout' => $endpoint->timeoutSeconds . 's'],
+                ['ID' => $endpoint->getId()],
+                ['Endpoint Key' => $endpoint->getEndpointKey()],
+                ['Direction' => $endpoint->getDirection()->value],
+                ['Provider' => $endpoint->getProviderKey()],
+                ['Enabled' => $endpoint->isEnabled() ? 'Yes' : 'No'],
+                ['Target URL' => $endpoint->getTargetUrl() ?? '(none)'],
+                ['Verification' => $endpoint->getVerificationMode() ?? '(none)'],
+                ['Secret Ref' => $endpoint->getSecretRef() !== null ? '***' . substr($endpoint->getSecretRef(), -4) : '(none)'],
+                ['Max Attempts' => (string) $endpoint->getMaxAttempts()],
+                ['Timeout' => $endpoint->getTimeoutSeconds() . 's'],
             );
             return Command::SUCCESS;
         }
@@ -118,11 +118,11 @@ final class WebhookShowCommand extends Command
         $rows = [];
         foreach ($endpoints as $ep) {
             $rows[] = [
-                $ep->endpointKey,
-                $ep->direction->value,
-                $ep->providerKey,
-                $ep->enabled ? 'Yes' : 'No',
-                $ep->targetUrl ?? '-',
+                $ep->getEndpointKey(),
+                $ep->getDirection()->value,
+                $ep->getProviderKey(),
+                $ep->isEnabled() ? 'Yes' : 'No',
+                $ep->getTargetUrl() ?? '-',
             ];
         }
 
@@ -258,13 +258,13 @@ final class WebhookShowCommand extends Command
         $rows = [];
         foreach ($attempts as $a) {
             $rows[] = [
-                $a->direction->value,
-                $a->eventType,
-                $a->statusBefore ?? '-',
-                $a->statusAfter ?? '-',
-                $a->httpStatus !== null ? (string) $a->httpStatus : '-',
-                $a->message ?? '-',
-                $a->createdAt->format('Y-m-d H:i:s'),
+                $a->getDirection()->value,
+                $a->getEventType(),
+                $a->getStatusBefore() ?? '-',
+                $a->getStatusAfter() ?? '-',
+                $a->getHttpStatus() !== null ? (string) $a->getHttpStatus() : '-',
+                $a->getMessage() ?? '-',
+                $a->getCreatedAt()->format('Y-m-d H:i:s'),
             ];
         }
 
