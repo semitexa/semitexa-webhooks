@@ -24,7 +24,6 @@ use Semitexa\Webhooks\Configuration\WebhookConfig;
 use Semitexa\Webhooks\Domain\Enum\OutboundStatus;
 use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
 use Semitexa\Webhooks\Domain\Model\OutboundWebhookMessage;
-use Semitexa\Webhooks\Domain\Model\TransportResult;
 use Semitexa\Webhooks\Domain\Model\WebhookEndpointDefinition;
 use Swoole\Coroutine;
 use Swoole\Coroutine\Channel;
