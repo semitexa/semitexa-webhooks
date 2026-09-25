@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Tests\Integration;
 
-use App\Tests\Modules\WebhookDemo\Fixtures\InMemoryWebhookAttemptRepository;
-use App\Tests\Modules\WebhookDemo\Fixtures\InMemoryWebhookEndpointDefinitionRepository;
-use App\Tests\Modules\WebhookDemo\Fixtures\InMemoryWebhookTransport;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\Attributes\Test;
@@ -25,6 +22,9 @@ use Semitexa\Webhooks\Domain\Enum\OutboundStatus;
 use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
 use Semitexa\Webhooks\Domain\Model\OutboundWebhookMessage;
 use Semitexa\Webhooks\Domain\Model\WebhookEndpointDefinition;
+use Semitexa\Webhooks\Tests\Fixtures\InMemoryWebhookAttemptRepository;
+use Semitexa\Webhooks\Tests\Fixtures\InMemoryWebhookEndpointDefinitionRepository;
+use Semitexa\Webhooks\Tests\Fixtures\InMemoryWebhookTransport;
 use Swoole\Coroutine;
 use Swoole\Coroutine\Channel;
 use function Swoole\Coroutine\run;
