@@ -135,9 +135,7 @@ final class WebhookDeliveryWorker
             );
         }
 
-        $isPermanent = $result->httpStatus !== null
-            && $result->httpStatus >= 400
-            && $result->httpStatus < 500;
+        $isPermanent = $result->permanent || self::isPermanentFailure($result->httpStatus);
 
         if ($isPermanent || !$delivery->hasAttemptsRemaining()) {
             $finalized = $this->outboxRepo->markFailedIfOwned(
@@ -162,7 +160,7 @@ final class WebhookDeliveryWorker
                 $result->errorMessage,
             );
             $reason = $isPermanent
-                ? '4xx permanent failure (no retry)'
+                ? ($result->permanent ? 'permanent failure (no retry)' : '4xx permanent failure (no retry)')
                 : "attempts exhausted ({$delivery->getAttemptCount()}/{$delivery->getMaxAttempts()})";
             $this->log("Delivery {$delivery->getId()} failed: {$reason}");
 
@@ -294,5 +292,19 @@ final class WebhookDeliveryWorker
             };
             $this->output->writeln("<{$tag}>{$message}</{$tag}>");
         }
+    }
+
+    /**
+     * A 4xx means the receiver rejected this request and will reject it again —
+     * except 408 (Request Timeout) and 429 (Too Many Requests), which say
+     * "not now" and are exactly what the retry schedule is for.
+     */
+    public static function isPermanentFailure(?int $httpStatus): bool
+    {
+        return $httpStatus !== null
+            && $httpStatus >= 400
+            && $httpStatus < 500
+            && $httpStatus !== 408
+            && $httpStatus !== 429;
     }
 }
