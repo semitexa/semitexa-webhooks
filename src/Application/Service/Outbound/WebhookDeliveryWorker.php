@@ -151,7 +151,7 @@ final class WebhookDeliveryWorker
             $delivery->markFailed($result->httpStatus, $result->responseBody, $result->errorMessage);
             $this->recordAttempt(
                 $delivery->getId(),
-                $isPermanent ? 'failed_permanent_4xx' : 'failed_attempts_exhausted',
+                self::failureEventType($result, $isPermanent),
                 $statusBefore,
                 $delivery->getStatus()->value,
                 $delivery->getAttemptCount(),
@@ -252,6 +252,19 @@ final class WebhookDeliveryWorker
         }
 
         $this->log("Webhook delivery worker stopped");
+    }
+
+    /**
+     * The transport marks a failure permanent itself only for a refused
+     * target (the SSRF guard): no request was sent, so it is not an HTTP 4xx.
+     */
+    private static function failureEventType(TransportResult $result, bool $isPermanent): string
+    {
+        if ($result->permanent && $result->httpStatus === null) {
+            return 'failed_blocked_target';
+        }
+
+        return $isPermanent ? 'failed_permanent_4xx' : 'failed_attempts_exhausted';
     }
 
     private function recordAttempt(

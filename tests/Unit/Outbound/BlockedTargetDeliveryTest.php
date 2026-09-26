@@ -56,9 +56,17 @@ final class BlockedTargetDeliveryTest extends TestCase
         $outbox->expects(self::once())->method('markFailedIfOwned')->willReturn(true);
         $outbox->expects(self::never())->method('markRetryScheduledIfOwned');
 
-        $outcome = $this->worker($outbox, TransportResult::failure(null, 'blocked', permanent: true))->processOne('w1');
+        $recorded = [];
+        $attempts = $this->createMock(WebhookAttemptRepositoryInterface::class);
+        $attempts->method('save')->willReturnCallback(static function (object $attempt) use (&$recorded): void {
+            $recorded[] = $attempt->getEventType();
+        });
+
+        $outcome = $this->worker($outbox, TransportResult::failure(null, 'blocked', permanent: true), $attempts)->processOne('w1');
 
         self::assertSame(OutboundStatus::Failed, $outcome->newStatus);
+        self::assertContains('failed_blocked_target', $recorded, 'no HTTP response happened, so it must not be recorded as a 4xx');
+        self::assertNotContains('failed_permanent_4xx', $recorded);
     }
 
     #[Test]
@@ -146,8 +154,11 @@ final class BlockedTargetDeliveryTest extends TestCase
         return $transport;
     }
 
-    private function worker(OutboundDeliveryRepositoryInterface $outbox, TransportResult $result): WebhookDeliveryWorker
-    {
+    private function worker(
+        OutboundDeliveryRepositoryInterface $outbox,
+        TransportResult $result,
+        ?WebhookAttemptRepositoryInterface $attempts = null,
+    ): WebhookDeliveryWorker {
         $claim = new OutboxClaimService();
         (new ReflectionProperty(OutboxClaimService::class, 'outboxRepo'))->setValue($claim, $outbox);
         (new ReflectionProperty(OutboxClaimService::class, 'config'))->setValue($claim, new WebhookConfig());
@@ -166,7 +177,7 @@ final class BlockedTargetDeliveryTest extends TestCase
             'claimService' => $claim,
             'transport' => $transport,
             'outboxRepo' => $outbox,
-            'attemptRepo' => $this->createStub(WebhookAttemptRepositoryInterface::class),
+            'attemptRepo' => $attempts ?? $this->createStub(WebhookAttemptRepositoryInterface::class),
             'backoffCalculator' => new BackoffCalculator(),
         ] as $property => $value) {
             (new ReflectionProperty(WebhookDeliveryWorker::class, $property))->setValue($worker, $value);
