@@ -25,6 +25,13 @@ final class InMemoryWebhookEndpointDefinitionRepository implements WebhookEndpoi
 
     public function add(WebhookEndpointDefinition $definition): void
     {
+        // A re-saved definition may have moved to a new key; the old key must
+        // stop resolving to it.
+        $previous = $this->byId[$definition->getId()] ?? null;
+        if ($previous !== null && $previous->getEndpointKey() !== $definition->getEndpointKey()) {
+            unset($this->byEndpointKey[$previous->getEndpointKey()]);
+        }
+
         $this->byId[$definition->getId()] = $definition;
         $this->byEndpointKey[$definition->getEndpointKey()] = $definition;
     }

@@ -17,7 +17,8 @@ use Semitexa\Webhooks\Domain\Model\TransportResult;
  * signs the request body when the endpoint has signing configured (using
  * the real {@see OutboundRequestSigner}, exactly as the worker's transport
  * would), and always reports success. Every send is recorded in {@see $sent}
- * so tests can assert "sent exactly once" and inspect the signed headers.
+ * so tests can assert "sent exactly once" and inspect the headers that
+ * would have gone on the wire.
  *
  * `send()` never yields mid-update — appending to `$sent` is a single
  * PHP statement, so it is safe to call from multiple coroutines racing
@@ -42,10 +43,28 @@ final class InMemoryWebhookTransport implements WebhookTransportInterface
         }
 
         $body = $delivery->getPayloadJson();
-        $headers = [];
+
+        // Same sources, same order as CurlWebhookTransport: endpoint defaults,
+        // then the delivery's own headers, then the signature.
+        $headers = ['Content-Type' => 'application/json'];
+
+        foreach ($endpoint->getDefaultHeaders() ?? [] as $key => $value) {
+            $headers[(string) $key] = (string) $value;
+        }
+
+        $customHeaders = $delivery->getHeadersJson() !== null
+            ? json_decode($delivery->getHeadersJson(), true)
+            : null;
+        if (is_array($customHeaders)) {
+            foreach ($customHeaders as $key => $value) {
+                $headers[(string) $key] = (string) $value;
+            }
+        }
 
         if ($endpoint->getSigningMode() !== null && $endpoint->getSecretRef() !== null) {
-            $headers = $this->signer->sign($body, $endpoint->getSecretRef(), 'sha256');
+            foreach ($this->signer->sign($body, $endpoint->getSecretRef(), 'sha256') as $key => $value) {
+                $headers[$key] = $value;
+            }
         }
 
         $this->sent[] = [
