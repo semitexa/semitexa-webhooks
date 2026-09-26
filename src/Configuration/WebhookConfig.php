@@ -45,6 +45,10 @@ final class WebhookConfig
     #[Config(env: 'WEBHOOK_RETENTION_DAYS', default: 30)]
     protected int $retentionDays = 30;
 
+    /** Deliver to loopback/private/link-local targets (development receivers). Off by default: see OutboundTargetGuard. */
+    #[Config(env: 'WEBHOOK_ALLOW_PRIVATE_TARGETS', default: false)]
+    protected bool $allowPrivateTargets = false;
+
 
     public function getDefaultTimeoutSeconds(): int { return $this->defaultTimeoutSeconds; }
     public function getDefaultMaxAttempts(): int { return $this->defaultMaxAttempts; }
@@ -53,6 +57,7 @@ final class WebhookConfig
     public function getDefaultLeaseSeconds(): int { return $this->defaultLeaseSeconds; }
     public function getDefaultDedupeWindowSeconds(): int { return $this->defaultDedupeWindowSeconds; }
     public function getRetentionDays(): int { return $this->retentionDays; }
+    public function allowsPrivateTargets(): bool { return $this->allowPrivateTargets; }
 
     public function __get(string $name): mixed
     {
@@ -129,6 +134,7 @@ final class WebhookConfig
         $config->defaultLeaseSeconds = $int('WEBHOOK_LEASE_SECONDS', 120);
         $config->defaultDedupeWindowSeconds = $int('WEBHOOK_DEDUPE_WINDOW_SECONDS', 86400);
         $config->retentionDays = $int('WEBHOOK_RETENTION_DAYS', 30);
+        $config->allowPrivateTargets = filter_var($_ENV['WEBHOOK_ALLOW_PRIVATE_TARGETS'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
         return $config;
     }
