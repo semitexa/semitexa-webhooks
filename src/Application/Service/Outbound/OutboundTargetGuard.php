@@ -46,7 +46,7 @@ final class OutboundTargetGuard
         $literal = trim($host, '[]');
         $ips = filter_var($literal, FILTER_VALIDATE_IP) !== false ? [$literal] : ($this->resolver)($host);
         if ($ips === []) {
-            throw new BlockedTargetException(sprintf('Webhook target host "%s" does not resolve.', $host));
+            throw new BlockedTargetException(sprintf('Webhook target host "%s" does not resolve.', $host), retryable: true);
         }
 
         if (!$allowPrivate) {
@@ -72,10 +72,23 @@ final class OutboundTargetGuard
 
         // Multicast is "global" to the filter but never a webhook receiver.
         $packed = inet_pton($ip);
+        if ($packed === false
+            || (strlen($packed) === 4 && (ord($packed[0]) & 0xF0) === 0xE0)
+            || (strlen($packed) === 16 && ord($packed[0]) === 0xFF)
+        ) {
+            return false;
+        }
 
-        return $packed !== false
-            && !(strlen($packed) === 4 && (ord($packed[0]) & 0xF0) === 0xE0)
-            && !(strlen($packed) === 16 && ord($packed[0]) === 0xFF);
+        // An IPv4-compatible literal (::a.b.c.d) passes the filter when written
+        // in hex (::7f00:1) although it embeds 127.0.0.1: judge the embedded
+        // address instead. :: and ::1 never reach here — the filter rejects them.
+        if (strlen($packed) === 16 && substr($packed, 0, 12) === str_repeat("\0", 12)) {
+            $embedded = inet_ntop(substr($packed, 12));
+
+            return $embedded !== false && self::isPublic($embedded);
+        }
+
+        return true;
     }
 
     /** @return list<string> */

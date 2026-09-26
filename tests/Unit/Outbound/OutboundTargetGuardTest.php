@@ -20,6 +20,8 @@ final class OutboundTargetGuardTest extends TestCase
         yield 'private network' => ['https://10.0.0.5/hook'];
         yield 'ipv6 loopback' => ['http://[::1]/hook'];
         yield 'ipv4-mapped loopback' => ['http://[::ffff:127.0.0.1]/hook'];
+        yield 'ipv4-compatible loopback' => ['http://[::7f00:1]/hook'];
+        yield 'ipv4-compatible private' => ['http://[::a00:5]/hook'];
         yield 'name resolving inside' => ['https://internal.example/hook'];
         yield 'non-http scheme' => ['file:///etc/passwd'];
         yield 'gopher' => ['gopher://example.com/'];
@@ -51,6 +53,13 @@ final class OutboundTargetGuardTest extends TestCase
             ['host' => 'hooks.example', 'port' => 443, 'ip' => '93.184.216.34'],
             $this->guard()->check('https://hooks.example/in', allowPrivate: false),
         );
+    }
+
+    #[Test]
+    public function an_ipv4_compatible_literal_is_judged_by_its_embedded_address(): void
+    {
+        self::assertFalse(OutboundTargetGuard::isPublic('::7f00:1'), 'embeds 127.0.0.1');
+        self::assertTrue(OutboundTargetGuard::isPublic('::5db8:d822'), 'embeds public 93.184.216.34');
     }
 
     #[Test]

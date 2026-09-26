@@ -135,7 +135,7 @@ final class WebhookDeliveryWorker
             );
         }
 
-        $isPermanent = self::isPermanentFailure($result->httpStatus);
+        $isPermanent = $result->permanent || self::isPermanentFailure($result->httpStatus);
 
         if ($isPermanent || !$delivery->hasAttemptsRemaining()) {
             $finalized = $this->outboxRepo->markFailedIfOwned(
@@ -160,7 +160,7 @@ final class WebhookDeliveryWorker
                 $result->errorMessage,
             );
             $reason = $isPermanent
-                ? '4xx permanent failure (no retry)'
+                ? ($result->permanent ? 'permanent failure (no retry)' : '4xx permanent failure (no retry)')
                 : "attempts exhausted ({$delivery->getAttemptCount()}/{$delivery->getMaxAttempts()})";
             $this->log("Delivery {$delivery->getId()} failed: {$reason}");
 

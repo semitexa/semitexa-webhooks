@@ -41,7 +41,7 @@ final class CurlWebhookTransport implements WebhookTransportInterface
             $target = ($this->targetGuard ??= new OutboundTargetGuard())
                 ->check($endpoint->getTargetUrl(), $this->config->allowsPrivateTargets());
         } catch (BlockedTargetException $e) {
-            return TransportResult::failure(null, $e->getMessage());
+            return TransportResult::failure(null, $e->getMessage(), permanent: !$e->retryable);
         }
 
         $body = $delivery->getPayloadJson();
@@ -86,6 +86,9 @@ final class CurlWebhookTransport implements WebhookTransportInterface
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_HEADER => true,
             CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            // No proxy, not even one from http_proxy/https_proxy: a proxy
+            // resolves the host itself, bypassing the pinned, guarded address.
+            CURLOPT_PROXY => '',
         ]);
         // Connect to the address the guard checked, not a fresh lookup (an IP
         // literal needs no pinning).
