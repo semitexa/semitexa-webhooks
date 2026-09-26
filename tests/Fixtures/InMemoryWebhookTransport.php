@@ -17,8 +17,8 @@ use Semitexa\Webhooks\Domain\Model\TransportResult;
  * signs the request body when the endpoint has signing configured (using
  * the real {@see OutboundRequestSigner}, exactly as the worker's transport
  * would), and always reports success. Every send is recorded in {@see $sent}
- * so tests can assert "sent exactly once" and inspect the headers that
- * would have gone on the wire.
+ * so tests can assert "sent exactly once" and inspect the ordered
+ * "Name: value" header lines that would have gone on the wire.
  *
  * `send()` never yields mid-update — appending to `$sent` is a single
  * PHP statement, so it is safe to call from multiple coroutines racing
@@ -27,7 +27,7 @@ use Semitexa\Webhooks\Domain\Model\TransportResult;
  */
 final class InMemoryWebhookTransport implements WebhookTransportInterface
 {
-    /** @var list<array{deliveryId: string, endpointKey: string, body: string, headers: array<string, string>}> */
+    /** @var list<array{deliveryId: string, endpointKey: string, body: string, headers: list<string>}> */
     public array $sent = [];
 
     public function __construct(
@@ -44,12 +44,15 @@ final class InMemoryWebhookTransport implements WebhookTransportInterface
 
         $body = $delivery->getPayloadJson();
 
-        // Same sources, same order as CurlWebhookTransport: endpoint defaults,
-        // then the delivery's own headers, then the signature.
-        $headers = ['Content-Type' => 'application/json'];
+        // Same sources, same order, same wire format as CurlWebhookTransport:
+        // endpoint defaults, then the delivery's own headers, then the
+        // signature, each appended as a "Name: value" line. Nothing is merged
+        // by name, so a header set both as an endpoint default and on the
+        // delivery is recorded twice, exactly as cURL would send it.
+        $headers = ['Content-Type: application/json'];
 
         foreach ($endpoint->getDefaultHeaders() ?? [] as $key => $value) {
-            $headers[(string) $key] = (string) $value;
+            $headers[] = "{$key}: {$value}";
         }
 
         $customHeaders = $delivery->getHeadersJson() !== null
@@ -57,13 +60,13 @@ final class InMemoryWebhookTransport implements WebhookTransportInterface
             : null;
         if (is_array($customHeaders)) {
             foreach ($customHeaders as $key => $value) {
-                $headers[(string) $key] = (string) $value;
+                $headers[] = $key . ': ' . (is_scalar($value) ? (string) $value : '');
             }
         }
 
         if ($endpoint->getSigningMode() !== null && $endpoint->getSecretRef() !== null) {
             foreach ($this->signer->sign($body, $endpoint->getSecretRef(), 'sha256') as $key => $value) {
-                $headers[$key] = $value;
+                $headers[] = "{$key}: {$value}";
             }
         }
 
