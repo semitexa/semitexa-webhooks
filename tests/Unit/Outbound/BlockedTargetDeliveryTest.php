@@ -65,8 +65,7 @@ final class BlockedTargetDeliveryTest extends TestCase
         $outcome = $this->worker($outbox, TransportResult::failure(null, 'blocked', permanent: true), $attempts)->processOne('w1');
 
         self::assertSame(OutboundStatus::Failed, $outcome->newStatus);
-        self::assertContains('failed_blocked_target', $recorded, 'no HTTP response happened, so it must not be recorded as a 4xx');
-        self::assertNotContains('failed_permanent_4xx', $recorded);
+        self::assertSame(['failed_blocked_target'], $recorded, 'no HTTP response happened, so it must not be recorded as a 4xx');
     }
 
     #[Test]
