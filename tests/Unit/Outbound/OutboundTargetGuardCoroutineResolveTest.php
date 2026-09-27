@@ -32,14 +32,17 @@ final class OutboundTargetGuardCoroutineResolveTest extends TestCase
         $resolve = new \ReflectionMethod(OutboundTargetGuard::class, 'resolveHost');
 
         $before = count((array) $clients->getValue());
-        $ips = [];
-        \Swoole\Coroutine\run(static function () use ($resolve, &$ips): void {
+        $runs = [];
+        \Swoole\Coroutine\run(static function () use ($resolve, &$runs): void {
             for ($i = 0; $i < 3; $i++) {
-                $ips = $resolve->invoke(null, 'localhost');
+                $runs[] = $resolve->invoke(null, 'localhost');
             }
         });
 
-        self::assertContains('127.0.0.1', $ips);
+        self::assertCount(3, $runs);
+        foreach ($runs as $i => $ips) {
+            self::assertContains('127.0.0.1', $ips, "lookup #{$i} resolved nothing");
+        }
         self::assertSame($before, count((array) $clients->getValue()), 'each lookup left a RemoteObject client behind');
     }
 }

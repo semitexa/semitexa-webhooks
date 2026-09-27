@@ -126,17 +126,34 @@ final class OutboundTargetGuard
      */
     private static function resolveInCoroutine(string $host): array
     {
+        // Both families at once: a stalled AAAA lookup must not add its
+        // timeout to an A answer that is already in.
+        $families = [\defined('AF_INET') ? AF_INET : 2, \defined('AF_INET6') ? AF_INET6 : 10];
+        /** @var array<int, mixed> $found */
+        $found = [];
+        $done = new \Swoole\Coroutine\WaitGroup();
+        foreach ($families as $i => $family) {
+            $done->add();
+            \Swoole\Coroutine::create(static function () use ($host, $family, $i, &$found, $done): void {
+                try {
+                    $found[$i] = \Swoole\Coroutine\System::getaddrinfo(
+                        $host,
+                        $family,
+                        \defined('SOCK_STREAM') ? SOCK_STREAM : 1,
+                        STREAM_IPPROTO_TCP,
+                        'http',
+                        self::DNS_TIMEOUT_SECONDS,
+                    );
+                } finally {
+                    $done->done();
+                }
+            });
+        }
+        $done->wait(self::DNS_TIMEOUT_SECONDS + 1.0);
+
         $ips = [];
-        foreach ([\defined('AF_INET') ? AF_INET : 2, \defined('AF_INET6') ? AF_INET6 : 10] as $family) {
-            $found = \Swoole\Coroutine\System::getaddrinfo(
-                $host,
-                $family,
-                \defined('SOCK_STREAM') ? SOCK_STREAM : 1,
-                STREAM_IPPROTO_TCP,
-                'http',
-                self::DNS_TIMEOUT_SECONDS,
-            );
-            foreach (is_array($found) ? $found : [] as $ip) {
+        foreach (array_keys($families) as $i) {
+            foreach (is_array($found[$i] ?? null) ? $found[$i] : [] as $ip) {
                 if (is_string($ip)) {
                     $ips[] = $ip;
                 }
