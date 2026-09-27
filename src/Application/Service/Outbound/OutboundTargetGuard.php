@@ -20,6 +20,9 @@ namespace Semitexa\Webhooks\Application\Service\Outbound;
  */
 final class OutboundTargetGuard
 {
+    /** Per address family; a lookup that takes longer is treated as unresolved. */
+    private const float DNS_TIMEOUT_SECONDS = 5.0;
+
     /** @var \Closure(string): list<string> */
     private \Closure $resolver;
 
@@ -94,10 +97,49 @@ final class OutboundTargetGuard
     /** @return list<string> */
     private static function resolveHost(string $host): array
     {
+        if (class_exists(\Swoole\Coroutine::class, false) && \Swoole\Coroutine::getCid() > 0) {
+            return self::resolveInCoroutine($host);
+        }
+
         $ips = gethostbynamel($host) ?: [];
         foreach (@dns_get_record($host, DNS_AAAA) ?: [] as $record) {
             if (isset($record['ipv6']) && is_string($record['ipv6'])) {
                 $ips[] = $record['ipv6'];
+            }
+        }
+
+        return array_values(array_unique($ips));
+    }
+
+    /**
+     * Resolve through Swoole's own resolver inside a coroutine.
+     *
+     * Under SWOOLE_HOOK_ALL (every HTTP worker) the hooked gethostbynamel()
+     * and dns_get_record() go through Swoole\RemoteObject\Client: on 6.2.x
+     * each call creates a client that is never released (fixed in 6.3), and
+     * MEASURED on 6.2.2 they also answered nothing at all, so every host
+     * looked unresolvable. getaddrinfo() yields the coroutine and returns
+     * addresses. It needs a service name: musl (the Alpine image) refuses a
+     * lookup without one with EAI_SERVICE.
+     *
+     * @return list<string>
+     */
+    private static function resolveInCoroutine(string $host): array
+    {
+        $ips = [];
+        foreach ([\defined('AF_INET') ? AF_INET : 2, \defined('AF_INET6') ? AF_INET6 : 10] as $family) {
+            $found = \Swoole\Coroutine\System::getaddrinfo(
+                $host,
+                $family,
+                \defined('SOCK_STREAM') ? SOCK_STREAM : 1,
+                STREAM_IPPROTO_TCP,
+                'http',
+                self::DNS_TIMEOUT_SECONDS,
+            );
+            foreach (is_array($found) ? $found : [] as $ip) {
+                if (is_string($ip)) {
+                    $ips[] = $ip;
+                }
             }
         }
 
