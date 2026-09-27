@@ -135,9 +135,7 @@ final class WebhookDeliveryWorker
             );
         }
 
-        $isPermanent = $result->httpStatus !== null
-            && $result->httpStatus >= 400
-            && $result->httpStatus < 500;
+        $isPermanent = $result->permanent || self::isPermanentFailure($result->httpStatus);
 
         if ($isPermanent || !$delivery->hasAttemptsRemaining()) {
             $finalized = $this->outboxRepo->markFailedIfOwned(
@@ -153,7 +151,7 @@ final class WebhookDeliveryWorker
             $delivery->markFailed($result->httpStatus, $result->responseBody, $result->errorMessage);
             $this->recordAttempt(
                 $delivery->getId(),
-                $isPermanent ? 'failed_permanent_4xx' : 'failed_attempts_exhausted',
+                self::failureEventType($result, $isPermanent),
                 $statusBefore,
                 $delivery->getStatus()->value,
                 $delivery->getAttemptCount(),
@@ -162,7 +160,7 @@ final class WebhookDeliveryWorker
                 $result->errorMessage,
             );
             $reason = $isPermanent
-                ? '4xx permanent failure (no retry)'
+                ? ($result->permanent ? 'permanent failure (no retry)' : '4xx permanent failure (no retry)')
                 : "attempts exhausted ({$delivery->getAttemptCount()}/{$delivery->getMaxAttempts()})";
             $this->log("Delivery {$delivery->getId()} failed: {$reason}");
 
@@ -256,6 +254,19 @@ final class WebhookDeliveryWorker
         $this->log("Webhook delivery worker stopped");
     }
 
+    /**
+     * The transport marks a failure permanent itself only for a refused
+     * target (the SSRF guard): no request was sent, so it is not an HTTP 4xx.
+     */
+    private static function failureEventType(TransportResult $result, bool $isPermanent): string
+    {
+        if ($result->permanent && $result->httpStatus === null) {
+            return 'failed_blocked_target';
+        }
+
+        return $isPermanent ? 'failed_permanent_4xx' : 'failed_attempts_exhausted';
+    }
+
     private function recordAttempt(
         string $outboxId,
         string $eventType,
@@ -294,5 +305,19 @@ final class WebhookDeliveryWorker
             };
             $this->output->writeln("<{$tag}>{$message}</{$tag}>");
         }
+    }
+
+    /**
+     * A 4xx means the receiver rejected this request and will reject it again —
+     * except 408 (Request Timeout) and 429 (Too Many Requests), which say
+     * "not now" and are exactly what the retry schedule is for.
+     */
+    public static function isPermanentFailure(?int $httpStatus): bool
+    {
+        return $httpStatus !== null
+            && $httpStatus >= 400
+            && $httpStatus < 500
+            && $httpStatus !== 408
+            && $httpStatus !== 429;
     }
 }

@@ -12,6 +12,8 @@ final readonly class TransportResult
         public ?string $responseBody = null,
         public ?string $errorMessage = null,
         public ?string $responseHeaders = null,
+        /** The same request would fail the same way: do not retry. */
+        public bool $permanent = false,
     ) {}
 
     public static function success(int $httpStatus, ?string $responseBody = null, ?string $responseHeaders = null): self
@@ -19,8 +21,8 @@ final readonly class TransportResult
         return new self(true, $httpStatus, $responseBody, responseHeaders: $responseHeaders);
     }
 
-    public static function failure(?int $httpStatus, string $errorMessage, ?string $responseBody = null): self
+    public static function failure(?int $httpStatus, string $errorMessage, ?string $responseBody = null, bool $permanent = false): self
     {
-        return new self(false, $httpStatus, $responseBody, $errorMessage);
+        return new self(false, $httpStatus, $responseBody, $errorMessage, permanent: $permanent);
     }
 }

@@ -6,6 +6,7 @@ namespace Semitexa\Webhooks\Application\Service\Outbound;
 
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
+use Semitexa\Webhooks\Configuration\WebhookConfig;
 use Semitexa\Webhooks\Domain\Contract\WebhookEndpointDefinitionRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookTransportInterface;
 use Semitexa\Webhooks\Domain\Model\OutboundDelivery;
@@ -20,6 +21,11 @@ final class CurlWebhookTransport implements WebhookTransportInterface
     #[InjectAsReadonly]
     protected OutboundRequestSigner $signer;
 
+    #[InjectAsReadonly]
+    protected WebhookConfig $config;
+
+    private ?OutboundTargetGuard $targetGuard = null;
+
     public function send(OutboundDelivery $delivery): TransportResult
     {
         $endpoint = $this->endpointRepo->findByEndpointKey($delivery->getEndpointKey());
@@ -29,6 +35,13 @@ final class CurlWebhookTransport implements WebhookTransportInterface
 
         if ($endpoint->getTargetUrl() === null || $endpoint->getTargetUrl() === '') {
             return TransportResult::failure(null, "No target URL configured for endpoint: {$delivery->getEndpointKey()}");
+        }
+
+        try {
+            $target = ($this->targetGuard ??= new OutboundTargetGuard())
+                ->check($endpoint->getTargetUrl(), $this->config->allowsPrivateTargets());
+        } catch (BlockedTargetException $e) {
+            return TransportResult::failure(null, $e->getMessage(), permanent: !$e->retryable);
         }
 
         $body = $delivery->getPayloadJson();
@@ -72,7 +85,17 @@ final class CurlWebhookTransport implements WebhookTransportInterface
             CURLOPT_CONNECTTIMEOUT => min(10, $endpoint->getTimeoutSeconds()),
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_HEADER => true,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            // No proxy, not even one from http_proxy/https_proxy: a proxy
+            // resolves the host itself, bypassing the pinned, guarded address.
+            CURLOPT_PROXY => '',
         ]);
+        // Connect to the address the guard checked, not a fresh lookup (an IP
+        // literal needs no pinning).
+        if (filter_var(trim($target['host'], '[]'), FILTER_VALIDATE_IP) === false) {
+            $pinned = str_contains($target['ip'], ':') ? '[' . $target['ip'] . ']' : $target['ip'];
+            curl_setopt($ch, CURLOPT_RESOLVE, [sprintf('%s:%d:%s', $target['host'], $target['port'], $pinned)]);
+        }
 
         $response = curl_exec($ch);
         $errno = curl_errno($ch);
