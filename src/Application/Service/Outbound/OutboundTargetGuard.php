@@ -20,6 +20,9 @@ namespace Semitexa\Webhooks\Application\Service\Outbound;
  */
 final class OutboundTargetGuard
 {
+    /** Per address family; a lookup that takes longer is treated as unresolved. */
+    private const float DNS_TIMEOUT_SECONDS = 5.0;
+
     /** @var \Closure(string): list<string> */
     private \Closure $resolver;
 
@@ -94,10 +97,66 @@ final class OutboundTargetGuard
     /** @return list<string> */
     private static function resolveHost(string $host): array
     {
+        if (class_exists(\Swoole\Coroutine::class, false) && \Swoole\Coroutine::getCid() > 0) {
+            return self::resolveInCoroutine($host);
+        }
+
         $ips = gethostbynamel($host) ?: [];
         foreach (@dns_get_record($host, DNS_AAAA) ?: [] as $record) {
             if (isset($record['ipv6']) && is_string($record['ipv6'])) {
                 $ips[] = $record['ipv6'];
+            }
+        }
+
+        return array_values(array_unique($ips));
+    }
+
+    /**
+     * Resolve through Swoole's own resolver inside a coroutine.
+     *
+     * Under SWOOLE_HOOK_ALL (every HTTP worker) the hooked gethostbynamel()
+     * and dns_get_record() go through Swoole\RemoteObject\Client: on 6.2.x
+     * each call creates a client that is never released (fixed in 6.3), and
+     * MEASURED on 6.2.2 they also answered nothing at all, so every host
+     * looked unresolvable. getaddrinfo() yields the coroutine and returns
+     * addresses. It needs a service name: musl (the Alpine image) refuses a
+     * lookup without one with EAI_SERVICE.
+     *
+     * @return list<string>
+     */
+    private static function resolveInCoroutine(string $host): array
+    {
+        // Both families at once: a stalled AAAA lookup must not add its
+        // timeout to an A answer that is already in.
+        $families = [\defined('AF_INET') ? AF_INET : 2, \defined('AF_INET6') ? AF_INET6 : 10];
+        /** @var array<int, mixed> $found */
+        $found = [];
+        $done = new \Swoole\Coroutine\WaitGroup();
+        foreach ($families as $i => $family) {
+            $done->add();
+            \Swoole\Coroutine::create(static function () use ($host, $family, $i, &$found, $done): void {
+                try {
+                    $found[$i] = \Swoole\Coroutine\System::getaddrinfo(
+                        $host,
+                        $family,
+                        \defined('SOCK_STREAM') ? SOCK_STREAM : 1,
+                        STREAM_IPPROTO_TCP,
+                        'http',
+                        self::DNS_TIMEOUT_SECONDS,
+                    );
+                } finally {
+                    $done->done();
+                }
+            });
+        }
+        $done->wait(self::DNS_TIMEOUT_SECONDS + 1.0);
+
+        $ips = [];
+        foreach (array_keys($families) as $i) {
+            foreach (is_array($found[$i] ?? null) ? $found[$i] : [] as $ip) {
+                if (is_string($ip)) {
+                    $ips[] = $ip;
+                }
             }
         }
 
