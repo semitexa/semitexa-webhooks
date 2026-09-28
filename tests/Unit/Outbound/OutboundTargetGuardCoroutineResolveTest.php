@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Tests\Unit\Outbound;
 
+use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -21,12 +22,9 @@ final class OutboundTargetGuardCoroutineResolveTest extends TestCase
 {
     #[Test]
     #[RunInSeparateProcess]
+    #[RequiresPhpExtension('swoole')]
     public function a_coroutine_resolves_without_the_remote_object_client(): void
     {
-        if (!extension_loaded('swoole')) {
-            self::markTestSkipped('Swoole extension is required.');
-        }
-
         \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
         $clients = new \ReflectionProperty(\Swoole\RemoteObject\Client::class, 'clients');
         $resolve = new \ReflectionMethod(OutboundTargetGuard::class, 'resolveHost');
