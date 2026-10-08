@@ -2,12 +2,24 @@
 
 Webhook support for Semitexa — inbound signature verification with deduplication, outbound durable delivery with retries, audit trail, and replay CLI.
 
-## Phase 1
+## Install
+
+Included in every project created by the installer (https://semitexa.com/install.sh).
+
+## Features
 
 - Inbound: signature verification (HMAC-SHA256), durable inbox with deduplication
 - Outbound: persistent outbox, claim-and-lease worker, exponential backoff retries
 - Audit: append-only attempt history for all transitions
-- CLI: `webhook:work`, `webhook:replay:inbound`, `webhook:replay:outbound`, `webhook:show`
+- CLI: `webhook:work`, `webhook:replay:inbound`, `webhook:replay:outbound`, `webhook:show`, `webhook:cleanup`
+
+## Worker
+
+Outbound deliveries are sent by a long-running worker that does not start with the web server:
+
+```bash
+bin/semitexa webhook:work [worker-id] [poll-interval]   # poll-interval defaults to 5 seconds
+```
 
 ## Outbound targets
 
