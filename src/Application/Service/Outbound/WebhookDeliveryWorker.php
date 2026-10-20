@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Service\Outbound;
 
+use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\Webhooks\Domain\Contract\OutboundDeliveryRepositoryInterface;
@@ -38,6 +39,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  * markDelivering(). Bypassing markDelivering() would leave attemptCount at
  * zero forever, causing the worker to retry an unhealthy delivery indefinitely.
  */
+#[AsService]
 final class WebhookDeliveryWorker
 {
     private ?OutputInterface $output = null;
