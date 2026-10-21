@@ -172,6 +172,36 @@ SQL);
     }
 
     #[Test]
+    public function a_repeat_keeps_the_status_the_row_earned(): void
+    {
+        $first = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-processed'));
+        $first->markProcessed();
+        $this->repo->save($first);
+
+        $repeat = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-processed'));
+
+        self::assertSame(InboundStatus::DuplicateIgnored, $repeat->getStatus(), 'the caller is told it was a duplicate');
+        self::assertSame(InboundStatus::Processed, $this->repo->findByDedupeKey('dedupe-test-processed')?->getStatus(), 'the row was overwritten to duplicate_ignored');
+        self::assertSame(1, $this->repo->findByDedupeKey('dedupe-test-processed')?->getDuplicateCount());
+    }
+
+    #[Test]
+    public function a_repeat_of_a_failed_delivery_is_handed_back_to_be_processed_again(): void
+    {
+        $first = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-failed'));
+        $first->markFailed('handler crashed');
+        $this->repo->save($first);
+
+        $retry = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-failed'));
+        $sameMoment = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-failed'));
+
+        self::assertSame(InboundStatus::Received, $retry->getStatus(), 'a provider retry of a failure was ignored as a duplicate');
+        self::assertSame(1, $retry->getDuplicateCount(), 'read back after the claim, so the saves that follow keep the counter');
+        self::assertSame(InboundStatus::DuplicateIgnored, $sameMoment->getStatus(), 'claimed once: a second retry does not process it again');
+        self::assertSame(1, $this->rowCount('dedupe-test-failed'));
+    }
+
+    #[Test]
     public function different_dedupe_keys_create_independent_rows(): void
     {
         $a = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-alpha'));

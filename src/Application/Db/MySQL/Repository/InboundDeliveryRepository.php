@@ -84,8 +84,35 @@ final class InboundDeliveryRepository implements InboundDeliveryRepositoryInterf
             ));
         }
 
+        // A provider sends a delivery again because it failed here: that one
+        // is processed again. Any other repeat is counted and reported to the
+        // caller as a duplicate; the row keeps the status it earned.
+        // Only the counters are written: writing the whole row with status
+        // duplicate_ignored overwrote what the first arrival had earned. UTC,
+        // as the ORM writes and reads its datetime columns.
+        $key = $delivery->getDedupeKey();
+        $this->adapter()->execute(
+            'UPDATE webhook_inbox SET duplicate_count = duplicate_count + 1, last_received_at = :now WHERE dedupe_key = :dedupe_key',
+            ['now' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s'), 'dedupe_key' => $key],
+        );
+
+        if ($existing->getStatus() === InboundStatus::Failed) {
+            // A provider's retry of a failure: claimed by one caller only, so
+            // two retries arriving together do not both process it. Read back
+            // after the claim, so the saves that follow keep the counters.
+            $claimed = $this->adapter()->execute(
+                "UPDATE webhook_inbox SET status = 'received' WHERE dedupe_key = :dedupe_key AND status = 'failed'",
+                ['dedupe_key' => $key],
+            )->rowCount === 1;
+            $fresh = $claimed ? $this->findByDedupeKey($key) : null;
+            if ($fresh !== null) {
+                return $fresh;
+            }
+        }
+
+        // In memory only, to tell the caller; counts as the row now does.
         $existing->markDuplicateIgnored();
-        $this->repository()->update($existing);
+
         return $existing;
     }
 

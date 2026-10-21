@@ -51,6 +51,7 @@ final class InboundWebhookReceiver
             rawBody: $envelope->rawBody,
             secretRef: $endpoint->getSecretRef(),
             verificationMode: $endpoint->getVerificationMode(),
+            tenantId: $endpoint->getTenantId(),
         );
 
         $verificationResult = $this->verifier->verify($verificationInput);
@@ -66,10 +67,17 @@ final class InboundWebhookReceiver
             $endpoint->getTenantId(),
         );
 
-        // 4. Build inbound delivery
+        // 4. Build inbound delivery. One whose signature failed is kept under
+        // a key of its own: the event id is not signed, so a forged request
+        // naming a real id took that id's key, and the genuine delivery that
+        // followed was ignored as its duplicate.
         $now = new \DateTimeImmutable();
+        $id = Uuid7::generate();
+        if (!$verificationResult->verified) {
+            $dedupeKey = 'rejected:' . $id;
+        }
         $delivery = new InboundDelivery(
-            id: Uuid7::generate(),
+            id: $id,
             endpointDefinitionId: $endpoint->getId(),
             providerKey: $endpoint->getProviderKey(),
             endpointKey: $endpoint->getEndpointKey(),
