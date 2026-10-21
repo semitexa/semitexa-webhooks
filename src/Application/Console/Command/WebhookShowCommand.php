@@ -171,7 +171,9 @@ final class WebhookShowCommand extends Command
         $rows = [];
         foreach ($deliveries as $d) {
             $rows[] = [
-                substr($d->getId(), 0, 8) . '...',
+                // The whole id: webhook:replay:* takes nothing shorter, and a UUIDv7's
+                // first characters are its timestamp, shared by rows of the same minute.
+                $d->getId(),
                 $d->getEndpointKey(),
                 $d->getStatus()->value,
                 $d->getParsedEventType() ?? '-',
@@ -223,7 +225,9 @@ final class WebhookShowCommand extends Command
         $rows = [];
         foreach ($deliveries as $d) {
             $rows[] = [
-                substr($d->getId(), 0, 8) . '...',
+                // The whole id: webhook:replay:* takes nothing shorter, and a UUIDv7's
+                // first characters are its timestamp, shared by rows of the same minute.
+                $d->getId(),
                 $d->getEndpointKey(),
                 $d->getEventType(),
                 $d->getStatus()->value,

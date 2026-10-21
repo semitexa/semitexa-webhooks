@@ -10,10 +10,12 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\Webhooks\Domain\Contract\OutboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookAttemptRepositoryInterface;
+use Semitexa\Webhooks\Domain\Enum\OutboundStatus;
 use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
 use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -41,7 +43,8 @@ final class WebhookReplayOutboundCommand extends Command
                 name: 'id',
                 mode: InputArgument::REQUIRED,
                 description: 'UUID of the outbound delivery to replay',
-            );
+            )
+            ->addOption('force', null, InputOption::VALUE_NONE, 'Also resend a delivery that was already delivered');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -57,6 +60,20 @@ final class WebhookReplayOutboundCommand extends Command
             $delivery = $outboxRepo->findById($id);
             if ($delivery === null) {
                 $io->error("Outbound delivery not found: {$id}");
+                return Command::FAILURE;
+            }
+
+            // A worker holding a live lease is sending it right now: resetting
+            // it stripped the lease and the next worker sent it a second time.
+            $lease = $delivery->getLeaseExpiresAt();
+            if ($delivery->getStatus() === OutboundStatus::Delivering && $lease !== null && $lease > new \DateTimeImmutable()) {
+                $io->error("Outbound delivery {$id} is being sent by {$delivery->getLeaseOwner()} until {$lease->format('H:i:s')} UTC; try again after that.");
+                return Command::FAILURE;
+            }
+            // Delivered means the receiver answered 2xx: sending it again is a
+            // second event on their side, so it takes --force.
+            if ($delivery->getStatus() === OutboundStatus::Delivered && !$input->getOption('force')) {
+                $io->error("Outbound delivery {$id} was already delivered. Pass --force to send it again.");
                 return Command::FAILURE;
             }
 

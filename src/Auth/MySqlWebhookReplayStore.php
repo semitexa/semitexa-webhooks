@@ -6,7 +6,7 @@ namespace Semitexa\Webhooks\Auth;
 
 use Semitexa\Orm\Adapter\SqlIdentifier;
 use Semitexa\Orm\OrmManager;
-use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
+use Semitexa\Webhooks\Auth\Contract\ExpiringWebhookReplayStoreInterface;
 
 /**
  * MySQL-backed production webhook replay store.
@@ -60,7 +60,7 @@ use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
  *   QueryResult::$rowCount (PDO's rowCount on MySQL: 1 for inserted, 0 for
  *   ignored).
  */
-final class MySqlWebhookReplayStore implements WebhookReplayStoreInterface
+final class MySqlWebhookReplayStore implements ExpiringWebhookReplayStoreInterface
 {
     public const TABLE = 'webhook_replay_keys';
 
