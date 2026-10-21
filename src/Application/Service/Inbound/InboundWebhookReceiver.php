@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Service\Inbound;
 
+use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\Webhooks\Domain\Contract\InboundDeliveryRepositoryInterface;
@@ -16,6 +17,7 @@ use Semitexa\Webhooks\Domain\Model\WebhookVerificationInput;
 use Semitexa\Webhooks\Domain\Enum\InboundStatus;
 use Semitexa\Webhooks\Domain\Enum\SignatureStatus;
 
+#[AsService]
 final class InboundWebhookReceiver
 {
     #[InjectAsReadonly]
@@ -121,6 +123,46 @@ final class InboundWebhookReceiver
             } catch (\Throwable $e) {
                 $this->inboundService->markFailed($delivery, $e->getMessage());
             }
+        }
+
+        return $delivery;
+    }
+
+    /**
+     * Run a stored delivery through a processor again — for an operator,
+     * after the processor was fixed. Only a delivery whose signature was
+     * verified when it arrived: the stored bytes are trusted as they were
+     * then, not checked again (the timestamp in them has long expired). It
+     * runs in the caller's tenant: the command refuses a delivery of another.
+     */
+    public function replay(InboundDelivery $delivery, WebhookInboundProcessorInterface $processor, bool $force = false): InboundDelivery
+    {
+        if ($delivery->getSignatureStatus() !== SignatureStatus::Verified) {
+            throw new \RuntimeException("Inbound delivery {$delivery->getId()} was never verified: replaying it would run bytes nobody vouched for.");
+        }
+        // A worker is on it now: a replay would run it twice at once.
+        if ($delivery->getStatus() === InboundStatus::Processing) {
+            throw new \RuntimeException("Inbound delivery {$delivery->getId()} is being processed right now.");
+        }
+        // Processed means its side effects happened: running them again is a
+        // decision, so it takes force.
+        if ($delivery->getStatus() === InboundStatus::Processed && !$force) {
+            throw new \RuntimeException("Inbound delivery {$delivery->getId()} was already processed. Replay with force to run it again.");
+        }
+
+        $this->inboundService->markProcessing($delivery);
+        try {
+            $processor->process(new InboundWebhookEnvelope(
+                endpointKey: $delivery->getEndpointKey(),
+                httpMethod: $delivery->getHttpMethod(),
+                requestUri: $delivery->getRequestUri(),
+                headers: $delivery->getHeaders() ?? [],
+                rawBody: $delivery->getRawBody() ?? '',
+                contentType: $delivery->getContentType(),
+            ));
+            $this->inboundService->markProcessed($delivery);
+        } catch (\Throwable $e) {
+            $this->inboundService->markFailed($delivery, $e->getMessage());
         }
 
         return $delivery;

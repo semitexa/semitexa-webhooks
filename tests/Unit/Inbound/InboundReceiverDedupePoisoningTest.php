@@ -51,6 +51,62 @@ final class InboundReceiverDedupePoisoningTest extends TestCase
         self::assertSame(1, $processor->calls);
     }
 
+    #[Test]
+    public function a_verified_delivery_replays_through_the_processor_without_its_expired_signature_checked_again(): void
+    {
+        $inbox = new PoisoningInbox();
+        $receiver = $this->receiver($inbox);
+        $failing = new class implements WebhookInboundProcessorInterface {
+            public function process(InboundWebhookEnvelope $envelope): void { throw new \RuntimeException('handler bug'); }
+        };
+        $stored = $receiver->receive($this->envelope('{"amount":100}', 'evt-7'), $failing);
+        self::assertSame(InboundStatus::Failed, $stored->getStatus());
+
+        $fixed = new class implements WebhookInboundProcessorInterface {
+            public ?string $body = null;
+            public function process(InboundWebhookEnvelope $envelope): void { $this->body = $envelope->rawBody; }
+        };
+        $replayed = $receiver->replay($stored, $fixed);
+
+        self::assertSame(InboundStatus::Processed, $replayed->getStatus());
+        self::assertSame('{"amount":100}', $fixed->body);
+    }
+
+    #[Test]
+    public function a_processed_delivery_replays_only_with_force(): void
+    {
+        $receiver = $this->receiver(new PoisoningInbox());
+        $counter = new class implements WebhookInboundProcessorInterface {
+            public int $calls = 0;
+            public function process(InboundWebhookEnvelope $envelope): void { $this->calls++; }
+        };
+        $processed = $receiver->receive($this->envelope('{"amount":5}', 'evt-9'), $counter);
+        self::assertSame(InboundStatus::Processed, $processed->getStatus());
+
+        try {
+            $receiver->replay($processed, $counter);
+            self::fail('a processed delivery ran its side effects again without force');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('already processed', $e->getMessage());
+        }
+        self::assertSame(1, $counter->calls);
+
+        $receiver->replay($processed, $counter, force: true);
+        self::assertSame(2, $counter->calls);
+    }
+
+    #[Test]
+    public function a_delivery_that_was_never_verified_is_not_replayed(): void
+    {
+        $receiver = $this->receiver(new PoisoningInbox());
+        $forged = $receiver->receive($this->envelope('{"amount":1}', 'evt-8', 'not-the-signature'));
+
+        $this->expectExceptionMessage('never verified');
+        $receiver->replay($forged, new class implements WebhookInboundProcessorInterface {
+            public function process(InboundWebhookEnvelope $envelope): void {}
+        });
+    }
+
     private function envelope(string $body, string $eventId, ?string $signature = null): InboundWebhookEnvelope
     {
         $ts = (string) time();

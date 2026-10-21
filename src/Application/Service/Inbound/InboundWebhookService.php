@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Service\Inbound;
 
+use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Webhooks\Domain\Contract\InboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookAttemptRepositoryInterface;
@@ -12,6 +13,7 @@ use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
 use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
 use Semitexa\Orm\Application\Service\Uuid7;
 
+#[AsService]
 final class InboundWebhookService
 {
     #[InjectAsReadonly]
