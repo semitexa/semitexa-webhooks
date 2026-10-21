@@ -7,6 +7,7 @@ namespace Semitexa\Webhooks\Application\Console\Command;
 use Psr\Container\ContainerInterface;
 use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Lifecycle\StopSignals;
 use Semitexa\Webhooks\Application\Service\Outbound\WebhookDeliveryWorker;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -59,6 +60,8 @@ final class WebhookWorkCommand extends Command
             $container = $this->container;
             $worker = $container->get(WebhookDeliveryWorker::class);
             $worker->setOutput($output);
+            // docker stop: the delivery in hand is sent and recorded, then the loop ends.
+            StopSignals::install(static fn () => $worker->stop(), static fn (string $m) => $output->writeln($m), 'the delivery in hand');
             $worker->run($workerId, $pollInterval);
         } catch (\Throwable $e) {
             $io->error('Webhook worker failed: ' . $e->getMessage());
