@@ -76,7 +76,8 @@ final class HmacSha256SignatureVerifierTest extends TestCase
         self::assertStringContainsString('Missing signature header', $result->reason);
     }
 
-    public function testValidSignatureWithoutTimestamp(): void
+    // verify:accept-test-change tk-webhook-signature-holes: a signature without a timestamp is refused now; it could be replayed at any time
+    public function testRejectsSignatureWithoutTimestamp(): void
     {
         $secret = 'test-secret-key';
         $body = '{"event":"payment.completed"}';
@@ -91,8 +92,27 @@ final class HmacSha256SignatureVerifierTest extends TestCase
 
         $result = $this->verifier->verify($input);
 
-        self::assertTrue($result->verified);
-        self::assertSame('Signature verified', $result->reason);
+        self::assertFalse($result->verified);
+        self::assertStringContainsString('timestamp', $result->reason);
+    }
+
+    public function testRejectsAnEmptySecret(): void
+    {
+        $var = 'SEMITEXA_EMPTY_WEBHOOK_SECRET_' . bin2hex(random_bytes(4));
+        putenv($var . '=');
+        try {
+            $ts = (string) time();
+            $result = $this->verifier->verify(new WebhookVerificationInput(
+                headers: ['X-Webhook-Signature' => hash_hmac('sha256', $ts . '.{}', ''), 'X-Webhook-Timestamp' => $ts],
+                rawBody: '{}',
+                secretRef: 'env:' . $var,
+                verificationMode: 'hmac_sha256',
+            ));
+        } finally {
+            putenv($var);
+        }
+
+        self::assertFalse($result->verified, 'an HMAC with an empty key is one anybody can compute');
     }
 
     public function testValidSignatureWithTimestamp(): void
@@ -145,7 +165,7 @@ final class HmacSha256SignatureVerifierTest extends TestCase
     public function testRejectsInvalidSignature(): void
     {
         $input = new WebhookVerificationInput(
-            headers: ['X-Webhook-Signature' => 'definitely-wrong'],
+            headers: ['X-Webhook-Signature' => 'definitely-wrong', 'X-Webhook-Timestamp' => (string) time()],
             rawBody: '{"event":"test"}',
             secretRef: 'my-secret',
             verificationMode: 'hmac_sha256',
@@ -161,10 +181,11 @@ final class HmacSha256SignatureVerifierTest extends TestCase
     {
         $secret = 'test-secret-key';
         $body = '{"event":"test"}';
-        $signature = hash_hmac('sha256', $body, $secret);
+        $ts = (string) time();
+        $signature = hash_hmac('sha256', $ts . '.' . $body, $secret);
 
         $input = new WebhookVerificationInput(
-            headers: ['X-Webhook-Signature' => "sha256={$signature}"],
+            headers: ['X-Webhook-Signature' => "sha256={$signature}", 'X-Webhook-Timestamp' => $ts],
             rawBody: $body,
             secretRef: $secret,
             verificationMode: 'hmac_sha256',
@@ -179,10 +200,11 @@ final class HmacSha256SignatureVerifierTest extends TestCase
     {
         $secret = 'test-secret-key';
         $body = '{"event":"test"}';
-        $signature = hash_hmac('sha256', $body, $secret);
+        $ts = (string) time();
+        $signature = hash_hmac('sha256', $ts . '.' . $body, $secret);
 
         $input = new WebhookVerificationInput(
-            headers: ['x-webhook-signature' => $signature],
+            headers: ['x-webhook-signature' => $signature, 'x-webhook-timestamp' => $ts],
             rawBody: $body,
             secretRef: $secret,
             verificationMode: 'hmac_sha256',
@@ -201,10 +223,11 @@ final class HmacSha256SignatureVerifierTest extends TestCase
 
         try {
             $body = '{"event":"test"}';
-            $signature = hash_hmac('sha256', $body, $secret);
+            $ts = (string) time();
+            $signature = hash_hmac('sha256', $ts . '.' . $body, $secret);
 
             $input = new WebhookVerificationInput(
-                headers: ['X-Webhook-Signature' => $signature],
+                headers: ['X-Webhook-Signature' => $signature, 'X-Webhook-Timestamp' => $ts],
                 rawBody: $body,
                 secretRef: "env:{$envVar}",
                 verificationMode: 'hmac_sha256',

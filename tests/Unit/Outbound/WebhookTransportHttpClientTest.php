@@ -11,6 +11,7 @@ use Semitexa\Core\Http\Client\FakeHttpClient;
 use Semitexa\Core\Http\Client\HttpRequest;
 use Semitexa\Core\Http\Client\HttpResponse;
 use Semitexa\Webhooks\Application\Service\Outbound\CurlWebhookTransport;
+use Semitexa\Webhooks\Application\Service\Outbound\OutboundRequestSigner;
 use Semitexa\Webhooks\Configuration\WebhookConfig;
 use Semitexa\Webhooks\Domain\Contract\WebhookEndpointDefinitionRepositoryInterface;
 use Semitexa\Webhooks\Domain\Enum\OutboundStatus;
@@ -73,8 +74,49 @@ final class WebhookTransportHttpClientTest extends TestCase
         $http->assertSentCount(0);
     }
 
+    #[Test]
+    public function a_delivery_whose_secret_is_missing_is_not_sent_unsigned(): void
+    {
+        $http = new FakeHttpClient();
+
+        $result = $this->transport($http, secretRef: 'env:SEMITEXA_MISSING_SECRET_' . bin2hex(random_bytes(4)))->send($this->delivery());
+
+        self::assertFalse($result->success);
+        self::assertFalse($result->permanent, 'retried, so setting the secret lets it through');
+        $http->assertSentCount(0);
+    }
+
+    #[Test]
+    public function an_endpoint_that_signs_without_a_secret_ref_is_a_permanent_failure(): void
+    {
+        $http = new FakeHttpClient();
+
+        $result = $this->transport($http, signingMode: 'hmac-sha256')->send($this->delivery());
+
+        self::assertFalse($result->success);
+        self::assertTrue($result->permanent);
+        $http->assertSentCount(0);
+    }
+
+    #[Test]
+    public function a_signed_delivery_carries_a_timestamp_the_receiver_requires(): void
+    {
+        $var = 'SEMITEXA_TEST_SECRET_' . bin2hex(random_bytes(4));
+        putenv($var . '=s3cret');
+        try {
+            $http = (new FakeHttpClient())->queue(HttpResponse::make(200));
+            $this->transport($http, secretRef: 'env:' . $var)->send($this->delivery());
+        } finally {
+            putenv($var);
+        }
+
+        $http->assertSent(static fn (HttpRequest $r): bool => ctype_digit((string) $r->header('X-Webhook-Timestamp'))
+            && str_starts_with((string) $r->header('X-Webhook-Signature'), 'sha256='));
+        $this->addToAssertionCount(1);
+    }
+
     /** @param array<string, string>|null $defaultHeaders */
-    private function transport(FakeHttpClient $http, ?array $defaultHeaders = null, int $timeout = 5): CurlWebhookTransport
+    private function transport(FakeHttpClient $http, ?array $defaultHeaders = null, int $timeout = 5, ?string $secretRef = null, ?string $signingMode = null): CurlWebhookTransport
     {
         $endpoints = $this->createStub(WebhookEndpointDefinitionRepositoryInterface::class);
         $endpoints->method('findByEndpointKey')->willReturn(new WebhookEndpointDefinition(
@@ -85,8 +127,8 @@ final class WebhookTransportHttpClientTest extends TestCase
             enabled: true,
             tenantId: null,
             verificationMode: null,
-            signingMode: null,
-            secretRef: null,
+            signingMode: $signingMode ?? ($secretRef === null ? null : 'hmac-sha256'),
+            secretRef: $secretRef,
             targetUrl: 'http://localhost:9/hook',
             timeoutSeconds: $timeout,
             maxAttempts: 5,
@@ -103,7 +145,7 @@ final class WebhookTransportHttpClientTest extends TestCase
         (new ReflectionProperty(WebhookConfig::class, 'allowPrivateTargets'))->setValue($config, true);
 
         $transport = new CurlWebhookTransport();
-        foreach (['endpointRepo' => $endpoints, 'config' => $config, 'http' => $http] as $property => $value) {
+        foreach (['endpointRepo' => $endpoints, 'config' => $config, 'http' => $http, 'signer' => new OutboundRequestSigner()] as $property => $value) {
             (new ReflectionProperty(CurlWebhookTransport::class, $property))->setValue($transport, $value);
         }
 

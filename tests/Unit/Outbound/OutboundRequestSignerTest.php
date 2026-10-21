@@ -42,11 +42,11 @@ final class OutboundRequestSignerTest extends TestCase
         self::assertSame($expected, $signature);
     }
 
-    public function testReturnsEmptyArrayWhenSecretNotResolvable(): void
+    // verify:accept-test-change tk-webhook-signature-holes: a missing secret no longer means "send unsigned"
+    public function testRefusesToSignWithoutASecret(): void
     {
-        $headers = $this->signer->sign('{}', 'env:NONEXISTENT_VAR_' . bin2hex(random_bytes(8)));
-
-        self::assertSame([], $headers);
+        $this->expectException(\RuntimeException::class);
+        $this->signer->sign('{}', 'env:NONEXISTENT_VAR_' . bin2hex(random_bytes(8)));
     }
 
     public function testResolvesEnvSecret(): void

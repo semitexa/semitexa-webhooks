@@ -70,8 +70,20 @@ final class CurlWebhookTransport implements WebhookTransportInterface
                 }
             }
         }
+        if ($endpoint->getSigningMode() !== null && ($endpoint->getSecretRef() ?? '') === '') {
+            // Signing asked for, nothing to sign with: never sent unsigned.
+            // Permanent: only a change to the endpoint row can fix it.
+            return TransportResult::failure(null, "Endpoint {$endpoint->getEndpointKey()} signs its webhooks but names no secret_ref.", permanent: true);
+        }
         if ($endpoint->getSigningMode() !== null && $endpoint->getSecretRef() !== null) {
-            foreach ($this->signer->sign($body, $endpoint->getSecretRef(), 'sha256') as $key => $value) {
+            try {
+                $signature = $this->signer->sign($body, $endpoint->getSecretRef(), 'sha256');
+            } catch (\RuntimeException $e) {
+                // Not sent unsigned. Retried as usual, so setting the secret
+                // lets the delivery through without replaying it by hand.
+                return TransportResult::failure(null, $e->getMessage());
+            }
+            foreach ($signature as $key => $value) {
                 $headers[(string) $key] = (string) $value;
             }
         }

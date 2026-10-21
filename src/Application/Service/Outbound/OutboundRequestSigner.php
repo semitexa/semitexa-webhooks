@@ -9,11 +9,14 @@ use Semitexa\Core\Attribute\AsService;
 #[AsService]
 final class OutboundRequestSigner
 {
+    /** @throws \RuntimeException when the secret is missing or empty */
     public function sign(string $body, string $secretRef, string $algorithm = 'sha256'): array
     {
         $secret = $this->resolveSecret($secretRef);
-        if ($secret === null) {
-            return [];
+        // A missing secret used to send the webhook unsigned, with no error;
+        // the receiver then refused every delivery, or worse, accepted them.
+        if ($secret === null || $secret === '') {
+            throw new \RuntimeException("The signing secret {$secretRef} is missing or empty: the webhook was not sent.");
         }
 
         $timestamp = (string) time();

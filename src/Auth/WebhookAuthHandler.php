@@ -96,6 +96,12 @@ final class WebhookAuthHandler implements AuthHandlerInterface
             throw new AuthenticationException('Webhook signature verifier unavailable');
         }
 
+        // An empty mode verified nothing and still authenticated the caller as
+        // a service. A receiver that checks no signature is a public payload.
+        if ($attr->verificationMode === '') {
+            throw new AuthenticationException('Webhook receiver ' . $payload::class . ' has an empty verificationMode: it would authenticate unsigned requests');
+        }
+
         $rawBody = $request->getContent() ?? '';
         $headers = $request->headers;
         $tenantId = $this->resolveTenantId();
