@@ -7,6 +7,7 @@ namespace Semitexa\Webhooks\Tests\Unit\Inbound;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Semitexa\Webhooks\Application\Service\Inbound\HmacSha256SignatureVerifier;
+use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
 use Semitexa\Webhooks\Application\Service\Inbound\InboundDedupeKeyFactory;
 use Semitexa\Webhooks\Application\Service\Inbound\InboundWebhookReceiver;
 use Semitexa\Webhooks\Application\Service\Inbound\InboundWebhookService;
@@ -49,6 +50,98 @@ final class InboundReceiverDedupePoisoningTest extends TestCase
         $again = $receiver->receive($this->envelope('{"amount":100}', 'evt-42'), $processor);
         self::assertSame(InboundStatus::DuplicateIgnored, $again->getStatus(), 'a real repeat is still a duplicate');
         self::assertSame(1, $processor->calls);
+    }
+
+    /** A captured signed request re-sent under a coming event's id made that event a "duplicate". */
+    #[Test]
+    public function a_captured_request_under_another_id_does_not_suppress_the_genuine_event(): void
+    {
+        $processor = new class implements WebhookInboundProcessorInterface {
+            public int $calls = 0;
+            public function process(InboundWebhookEnvelope $envelope): void { $this->calls++; }
+        };
+        $receiver = $this->receiver(new PoisoningInbox());
+
+        $receiver->receive($this->envelope('{"ping":1}', 'evt-1'), $processor);
+        $receiver->receive($this->envelope('{"ping":1}', 'evt-2'), $processor);
+        $refund = $receiver->receive($this->envelope('{"refund":42}', 'evt-2'), $processor);
+
+        self::assertSame(InboundStatus::Processed, $refund->getStatus());
+    }
+
+    /** Re-sent with fresh event ids, one captured request ran the processor once per id. */
+    #[Test]
+    public function the_same_signed_bytes_are_processed_once_whatever_event_id_they_carry(): void
+    {
+        $processor = new class implements WebhookInboundProcessorInterface {
+            public int $calls = 0;
+            public function process(InboundWebhookEnvelope $envelope): void { $this->calls++; }
+        };
+        $receiver = $this->receiver(new PoisoningInbox(), new SharedReplayStore());
+        $captured = $this->envelope('{"refund":42}', 'evt-1');
+
+        $receiver->receive($captured, $processor);
+        foreach (['evt-2', 'evt-3'] as $id) {
+            $replay = new InboundWebhookEnvelope(
+                endpointKey: $captured->endpointKey, httpMethod: $captured->httpMethod, requestUri: $captured->requestUri,
+                headers: ['X-Webhook-Event-Id' => $id] + $captured->headers, rawBody: $captured->rawBody, contentType: $captured->contentType,
+            );
+            self::assertSame(InboundStatus::DuplicateIgnored, $receiver->receive($replay, $processor)->getStatus());
+        }
+
+        self::assertSame(1, $processor->calls);
+    }
+
+    /** The row of an outbound endpoint verifies nothing: an unsigned POST to its key was processed. */
+    #[Test]
+    public function only_an_inbound_endpoint_that_verifies_receives(): void
+    {
+        foreach ([[WebhookDirection::Outbound, null], [WebhookDirection::Inbound, null], [WebhookDirection::Inbound, '']] as [$direction, $mode]) {
+            try {
+                $this->receiver(new PoisoningInbox(), direction: $direction, verificationMode: $mode)->receive($this->envelope('{}', 'evt-1', 'none'));
+                self::fail('received on ' . $direction->value . ' / ' . var_export($mode, true));
+            } catch (\RuntimeException $e) {
+                self::assertMatchesRegularExpression('/does not receive|names no verificationMode/', $e->getMessage());
+            }
+        }
+    }
+
+    /** Checked before the delivery was stored or run, the same bytes resent after a failure were dropped for good. */
+    #[Test]
+    public function an_exact_resend_of_a_failed_delivery_is_processed_again(): void
+    {
+        $processor = new class implements WebhookInboundProcessorInterface {
+            public int $calls = 0;
+            public function process(InboundWebhookEnvelope $envelope): void
+            {
+                if (++$this->calls === 1) {
+                    throw new \RuntimeException('handler bug');
+                }
+            }
+        };
+        $receiver = $this->receiver(new PoisoningInbox(), new SharedReplayStore());
+        $request = $this->envelope('{"refund":42}', 'evt-1');
+
+        self::assertSame(InboundStatus::Failed, $receiver->receive($request, $processor)->getStatus());
+        self::assertSame(InboundStatus::Processed, $receiver->receive($request, $processor)->getStatus());
+    }
+
+    #[Test]
+    public function a_duplicate_is_never_replayed(): void
+    {
+        $processor = new class implements WebhookInboundProcessorInterface {
+            public function process(InboundWebhookEnvelope $envelope): void {}
+        };
+        $receiver = $this->receiver(new PoisoningInbox(), new SharedReplayStore());
+        $captured = $this->envelope('{"refund":42}', 'evt-1');
+        $receiver->receive($captured, $processor);
+        $copy = $receiver->receive(new InboundWebhookEnvelope(
+            endpointKey: $captured->endpointKey, httpMethod: $captured->httpMethod, requestUri: $captured->requestUri,
+            headers: ['X-Webhook-Event-Id' => 'evt-2'] + $captured->headers, rawBody: $captured->rawBody, contentType: $captured->contentType,
+        ), $processor);
+
+        $this->expectExceptionMessage('duplicate of another');
+        $receiver->replay($copy, $processor, force: true);
     }
 
     #[Test]
@@ -125,12 +218,12 @@ final class InboundReceiverDedupePoisoningTest extends TestCase
         );
     }
 
-    private function receiver(PoisoningInbox $inbox): InboundWebhookReceiver
+    private function receiver(PoisoningInbox $inbox, ?WebhookReplayStoreInterface $replays = null, WebhookDirection $direction = WebhookDirection::Inbound, ?string $verificationMode = 'hmac-sha256'): InboundWebhookReceiver
     {
         $endpoints = $this->createStub(WebhookEndpointDefinitionRepositoryInterface::class);
         $endpoints->method('findByEndpointKey')->willReturn(new WebhookEndpointDefinition(
-            id: 'ep-in', endpointKey: 'partner', direction: WebhookDirection::Inbound, providerKey: 'partner',
-            enabled: true, tenantId: null, verificationMode: 'hmac-sha256', signingMode: null, secretRef: self::SECRET,
+            id: 'ep-in', endpointKey: 'partner', direction: $direction, providerKey: 'partner',
+            enabled: true, tenantId: null, verificationMode: $verificationMode, signingMode: null, secretRef: self::SECRET,
             targetUrl: null, timeoutSeconds: 5, maxAttempts: 5, initialBackoffSeconds: 30, maxBackoffSeconds: 3600,
             dedupeWindowSeconds: null, handlerClass: null, defaultHeaders: null, metadata: null,
             createdAt: new \DateTimeImmutable(), updatedAt: new \DateTimeImmutable(),
@@ -146,6 +239,7 @@ final class InboundReceiverDedupePoisoningTest extends TestCase
             'inboxRepo' => $inbox,
             'inboundService' => $service,
             'dedupeKeyFactory' => new InboundDedupeKeyFactory(),
+            ...($replays !== null ? ['replayStore' => $replays] : []),
         ] as $property => $value) {
             (new \ReflectionProperty(InboundWebhookReceiver::class, $property))->setValue($receiver, $value);
         }
@@ -181,4 +275,26 @@ final class PoisoningInbox implements InboundDeliveryRepositoryInterface
     public function findByStatus(string $status, int $limit = 50): array { return []; }
     public function deleteTerminalOlderThan(\DateTimeImmutable $cutoff, ?int $limit = null, ?string $tenantId = null): int { return 0; }
     public function countTerminalOlderThan(\DateTimeImmutable $cutoff, ?string $tenantId = null): int { return 0; }
+}
+
+/** A replay store the workers share, in memory. */
+final class SharedReplayStore implements WebhookReplayStoreInterface
+{
+    /** @var array<string, true> */
+    private array $seen = [];
+
+    public function seen(string $key): bool { return isset($this->seen[$key]); }
+    public function markSeen(string $key): void { $this->seen[$key] = true; }
+    public function markIfFirstSeen(string $key, ?int $ttlSeconds = null): bool
+    {
+        if (isset($this->seen[$key])) {
+            return false;
+        }
+        $this->seen[$key] = true;
+
+        return true;
+    }
+    public function clear(): void { $this->seen = []; }
+    public function isShared(): bool { return true; }
+    public function diagnosticName(): string { return 'shared-test'; }
 }

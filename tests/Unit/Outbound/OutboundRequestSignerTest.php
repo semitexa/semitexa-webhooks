@@ -71,4 +71,24 @@ final class OutboundRequestSignerTest extends TestCase
 
         self::assertNotSame($h1['X-Webhook-Signature'], $h2['X-Webhook-Signature']);
     }
+
+    /** A `vault:` reference a project's resolver knows was used as the HMAC key itself. */
+    public function testTheSecretComesFromTheReceiversResolverPerTenant(): void
+    {
+        $resolver = new class implements \Semitexa\Webhooks\Auth\Contract\WebhookSecretResolverInterface {
+            public ?string $tenant = null;
+            public function resolve(string $secretRef, ?string $tenantId = null): ?string
+            {
+                $this->tenant = $tenantId;
+
+                return $secretRef === 'vault:orders' ? 'real-key' : null;
+            }
+        };
+        (new \ReflectionProperty(OutboundRequestSigner::class, 'secretResolver'))->setValue($this->signer, $resolver);
+
+        $headers = $this->signer->sign('{}', 'vault:orders', 'sha256', 'acme');
+
+        self::assertSame('sha256=' . hash_hmac('sha256', $headers['X-Webhook-Timestamp'] . '.{}', 'real-key'), $headers['X-Webhook-Signature']);
+        self::assertSame('acme', $resolver->tenant);
+    }
 }

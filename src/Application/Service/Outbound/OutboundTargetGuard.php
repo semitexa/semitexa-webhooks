@@ -47,7 +47,23 @@ final class OutboundTargetGuard
         $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
 
         $literal = trim($host, '[]');
-        $ips = filter_var($literal, FILTER_VALIDATE_IP) !== false ? [$literal] : ($this->resolver)($host);
+        $isLiteral = filter_var($literal, FILTER_VALIDATE_IP) !== false;
+        // A name cURL would spell differently than it was checked under
+        // escapes the pin: it converts an international name to punycode and
+        // decodes %-escapes, finds no pinned entry for that spelling, and
+        // resolves it afresh, unchecked (ä.example answering a public
+        // address here and its xn-- form 169.254.169.254 there). Plain ASCII
+        // names only; an international one is written in its xn-- form.
+        if (!$isLiteral && preg_match('/^[A-Za-z0-9_](?:[A-Za-z0-9_-]*[A-Za-z0-9_])?(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]*[A-Za-z0-9_])?)*\.?$/', $host) !== 1) {
+            throw new BlockedTargetException('Webhook target host must be a plain ASCII name (write an international name in its xn-- form).');
+        }
+        // 127.1, 0x7f.1, 2130706433: cURL reads such a name as an address
+        // itself, ignoring the pin. libc reads it the same way today; that
+        // agreement is not something to rest on.
+        if (!$isLiteral && preg_match('/^(?:0x[0-9a-f]*|[0-9]+)(?:\.(?:0x[0-9a-f]*|[0-9]+))*\.?$/i', $host) === 1) {
+            throw new BlockedTargetException('Webhook target host looks like an address but is not one written in full.');
+        }
+        $ips = $isLiteral ? [$literal] : ($this->resolver)($host);
         if ($ips === []) {
             throw new BlockedTargetException(sprintf('Webhook target host "%s" does not resolve.', $host), retryable: true);
         }
@@ -55,10 +71,11 @@ final class OutboundTargetGuard
         if (!$allowPrivate) {
             foreach ($ips as $ip) {
                 if (!self::isPublic($ip)) {
+                    // Without the address: the message lands in last_error, and
+                    // a tenant who reads it could map internal names to IPs.
                     throw new BlockedTargetException(sprintf(
-                        'Webhook target host "%s" resolves to non-public address %s; set WEBHOOK_ALLOW_PRIVATE_TARGETS=true to allow it.',
+                        'Webhook target host "%s" resolves to a non-public address; set WEBHOOK_ALLOW_PRIVATE_TARGETS=true to allow it.',
                         $host,
-                        $ip,
                     ));
                 }
             }
@@ -89,6 +106,35 @@ final class OutboundTargetGuard
             $embedded = inet_ntop(substr($packed, 12));
 
             return $embedded !== false && self::isPublic($embedded);
+        }
+
+        if (strlen($packed) === 16) {
+            // 64:ff9b:1::/48 is NAT64 for a local network (RFC 8215): private.
+            if (substr($packed, 0, 6) === "\x00\x64\xff\x9b\x00\x01") {
+                return false;
+            }
+            // NAT64 (64:ff9b::/96) and 6to4 (2002::/16) carry an IPv4 address
+            // a gateway connects to: 64:ff9b::a9fe:a9fe is 169.254.169.254.
+            // Judged by that address.
+            $embedded = match (true) {
+                substr($packed, 0, 12) === "\x00\x64\xff\x9b" . str_repeat("\0", 8) => substr($packed, 12, 4),
+                substr($packed, 0, 2) === "\x20\x02" => substr($packed, 2, 4),
+                default => null,
+            };
+            if ($embedded !== null) {
+                $ipv4 = inet_ntop($embedded);
+
+                return $ipv4 !== false && self::isPublic($ipv4);
+            }
+            // fec0::/10, the deprecated site-local range: a private network.
+            if (ord($packed[0]) === 0xFE && (ord($packed[1]) & 0xC0) === 0xC0) {
+                return false;
+            }
+        }
+
+        // 192.88.99.0/24, the 6to4 relay anycast: never a receiver.
+        if (strlen($packed) === 4 && substr($packed, 0, 3) === "\xC0\x58\x63") {
+            return false;
         }
 
         return true;

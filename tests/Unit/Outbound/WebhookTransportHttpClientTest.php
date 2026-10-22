@@ -62,6 +62,29 @@ final class WebhookTransportHttpClientTest extends TestCase
         self::assertSame((float) (new WebhookConfig())->getDefaultTimeoutSeconds(), $http->recordedOptions()[0]->timeout);
     }
 
+    /** A send that outlived its lease was claimed and sent again by another worker meanwhile. */
+    #[Test]
+    public function a_long_endpoint_timeout_stays_within_half_the_lease(): void
+    {
+        $http = (new FakeHttpClient())->queue(HttpResponse::make(200));
+
+        $this->transport($http, null, 300)->send($this->delivery());
+
+        self::assertSame((float) intdiv((new WebhookConfig())->getDefaultLeaseSeconds(), 2), $http->recordedOptions()[0]->timeout);
+    }
+
+    /** Each retry is signed afresh: the outbox id is what a receiver recognises a second copy by. */
+    #[Test]
+    public function every_attempt_carries_the_outbox_id_as_its_event_id(): void
+    {
+        $http = (new FakeHttpClient())->queue(HttpResponse::make(200));
+
+        $this->transport($http)->send($this->delivery());
+
+        self::assertSame('d-1', $http->recorded()[0]->header('X-Webhook-Event-Id'));
+        self::assertSame('order.created', $http->recorded()[0]->header('X-Webhook-Event-Type'));
+    }
+
     #[Test]
     public function a_header_with_a_line_break_is_a_permanent_failure_and_nothing_is_sent(): void
     {
@@ -115,17 +138,42 @@ final class WebhookTransportHttpClientTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
+    /** Disabling an endpoint stopped new deliveries only: the queued and retrying ones kept going out. */
+    #[Test]
+    public function a_disabled_endpoint_sends_nothing_and_its_delivery_waits(): void
+    {
+        $http = new FakeHttpClient();
+
+        $result = $this->transport($http, enabled: false)->send($this->delivery());
+
+        self::assertFalse($result->success);
+        self::assertFalse($result->permanent, 'enabled again, it goes out');
+        self::assertSame([], $http->recorded());
+    }
+
+    /** A key deleted and made again by another tenant received the old tenant's payloads. */
+    #[Test]
+    public function an_endpoint_now_owned_by_another_tenant_never_receives_the_delivery(): void
+    {
+        $http = new FakeHttpClient();
+
+        $result = $this->transport($http, tenantId: 'other')->send($this->delivery());
+
+        self::assertTrue($result->permanent);
+        self::assertSame([], $http->recorded());
+    }
+
     /** @param array<string, string>|null $defaultHeaders */
-    private function transport(FakeHttpClient $http, ?array $defaultHeaders = null, int $timeout = 5, ?string $secretRef = null, ?string $signingMode = null): CurlWebhookTransport
+    private function transport(FakeHttpClient $http, ?array $defaultHeaders = null, int $timeout = 5, ?string $secretRef = null, ?string $signingMode = null, bool $enabled = true, ?string $tenantId = null): CurlWebhookTransport
     {
         $endpoints = $this->createStub(WebhookEndpointDefinitionRepositoryInterface::class);
-        $endpoints->method('findByEndpointKey')->willReturn(new WebhookEndpointDefinition(
+        $endpoints->method('findById')->willReturn(new WebhookEndpointDefinition(
             id: 'ep-1',
             endpointKey: 'orders',
             direction: WebhookDirection::Outbound,
             providerKey: 'test',
-            enabled: true,
-            tenantId: null,
+            enabled: $enabled,
+            tenantId: $tenantId,
             verificationMode: null,
             signingMode: $signingMode ?? ($secretRef === null ? null : 'hmac-sha256'),
             secretRef: $secretRef,

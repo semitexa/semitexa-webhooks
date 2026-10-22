@@ -38,9 +38,20 @@ final class CurlWebhookTransport implements WebhookTransportInterface
 
     public function send(OutboundDelivery $delivery): TransportResult
     {
-        $endpoint = $this->endpointRepo->findByEndpointKey($delivery->getEndpointKey());
+        // The endpoint the delivery was queued for, by id: found by key, a
+        // key deleted and created again — by another tenant, say — received
+        // the old one's payloads, signed with the new secret.
+        $endpoint = $this->endpointRepo->findById($delivery->getEndpointDefinitionId());
         if ($endpoint === null) {
-            return TransportResult::failure(null, "Endpoint not found: {$delivery->getEndpointKey()}");
+            return TransportResult::failure(null, "Endpoint not found: {$delivery->getEndpointKey()}", permanent: true);
+        }
+        if (($endpoint->getTenantId() ?? '') !== ($delivery->getTenantId() ?? '')) {
+            return TransportResult::failure(null, "Endpoint {$delivery->getEndpointKey()} belongs to another tenant now.", permanent: true);
+        }
+        // Disabling an endpoint stopped new deliveries only: those queued and
+        // retrying kept going out. Retried, so enabling it again lets them through.
+        if (!$endpoint->isEnabled()) {
+            return TransportResult::failure(null, "Endpoint {$delivery->getEndpointKey()} is disabled.");
         }
 
         if ($endpoint->getTargetUrl() === null || $endpoint->getTargetUrl() === '') {
@@ -58,7 +69,14 @@ final class CurlWebhookTransport implements WebhookTransportInterface
 
         // Build headers: the endpoint's defaults, the delivery's own, then the
         // signature, each later one replacing an earlier of the same name.
-        $headers = ['Content-Type' => 'application/json'];
+        // The outbox id, the same on every retry: each retry is signed with a
+        // new timestamp, so a receiver had nothing stable to recognise a
+        // second copy by. The inbound side dedupes on it (bound to the body).
+        $headers = [
+            'Content-Type' => 'application/json',
+            'X-Webhook-Event-Id' => $delivery->getId(),
+            'X-Webhook-Event-Type' => $delivery->getEventType(),
+        ];
         foreach ($endpoint->getDefaultHeaders() ?? [] as $key => $value) {
             $headers[(string) $key] = (string) $value;
         }
@@ -77,7 +95,7 @@ final class CurlWebhookTransport implements WebhookTransportInterface
         }
         if ($endpoint->getSigningMode() !== null && $endpoint->getSecretRef() !== null) {
             try {
-                $signature = $this->signer->sign($body, $endpoint->getSecretRef(), 'sha256');
+                $signature = $this->signer->sign($body, $endpoint->getSecretRef(), 'sha256', $endpoint->getTenantId());
             } catch (\RuntimeException $e) {
                 // Not sent unsigned. Retried as usual, so setting the secret
                 // lets the delivery through without replaying it by hand.
@@ -110,6 +128,9 @@ final class CurlWebhookTransport implements WebhookTransportInterface
         // 0 (nothing validates the column) used to mean curl's "no timeout";
         // as a client timeout it would be 1 ms. The configured default instead.
         $timeout = $endpoint->getTimeoutSeconds() > 0 ? $endpoint->getTimeoutSeconds() : $this->config->getDefaultTimeoutSeconds();
+        // Within half the lease: a send that outlives the lease is claimed and
+        // sent again by another worker while it is still running.
+        $timeout = min($timeout, max(1, intdiv($this->config->getDefaultLeaseSeconds(), 2)));
 
         try {
             $response = $this->http()->send($request, new HttpCallOptions(

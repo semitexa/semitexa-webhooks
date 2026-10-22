@@ -25,6 +25,18 @@ final class OutboundTargetGuardTest extends TestCase
         yield 'name resolving inside' => ['https://internal.example/hook'];
         yield 'non-http scheme' => ['file:///etc/passwd'];
         yield 'gopher' => ['gopher://example.com/'];
+        // cURL spells these differently than they were checked (punycode,
+        // %-decoded), misses the pinned entry and resolves them afresh.
+        yield 'international name' => ['http://ä.hooks.example/hook'];
+        yield 'percent-escaped name' => ['http://hooks%2eexample/hook'];
+        yield 'nat64 metadata' => ['http://[64:ff9b::a9fe:a9fe]/'];
+        yield 'local nat64' => ['http://[64:ff9b:1::808:808]/'];
+        yield '6to4 metadata' => ['http://[2002:a9fe:a9fe::1]/'];
+        yield 'site-local' => ['http://[fec0::1]/'];
+        yield '6to4 relay' => ['http://192.88.99.1/'];
+        yield 'short loopback' => ['http://127.1/'];
+        yield 'hex loopback' => ['http://0x7f.1/'];
+        yield 'decimal loopback' => ['http://2130706433/'];
     }
 
     #[Test]
@@ -63,6 +75,24 @@ final class OutboundTargetGuardTest extends TestCase
     }
 
     #[Test]
+    public function an_international_name_in_its_xn_form_is_pinned_as_written(): void
+    {
+        self::assertSame('xn--4ca.hooks.example', $this->guard()->check('https://xn--4ca.hooks.example/in', allowPrivate: false)['host']);
+    }
+
+    /** The message lands in last_error: a tenant reading it could map internal names to addresses. */
+    #[Test]
+    public function a_blocked_target_does_not_name_the_internal_address(): void
+    {
+        try {
+            (new OutboundTargetGuard(static fn (): array => ['10.1.2.3']))->check('https://billing.internal/hook', allowPrivate: false);
+            self::fail('blocked');
+        } catch (BlockedTargetException $e) {
+            self::assertStringNotContainsString('10.1.2.3', $e->getMessage());
+        }
+    }
+
+    #[Test]
     public function private_targets_are_allowed_when_configured(): void
     {
         self::assertSame('127.0.0.1', $this->guard()->check('http://127.0.0.1:8080/hook', allowPrivate: true)['ip']);
@@ -79,7 +109,7 @@ final class OutboundTargetGuardTest extends TestCase
     private function guard(): OutboundTargetGuard
     {
         return new OutboundTargetGuard(static fn (string $host): array => match ($host) {
-            'hooks.example' => ['93.184.216.34'],
+            'hooks.example', 'xn--4ca.hooks.example' => ['93.184.216.34'],
             'internal.example' => ['192.168.1.20'],
             default => [],
         });

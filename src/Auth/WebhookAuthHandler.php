@@ -9,6 +9,7 @@ use Semitexa\Auth\Domain\Contract\AuthHandlerInterface;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Auth\AuthResult;
 use Semitexa\Core\Exception\AuthenticationException;
+use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\Core\Request;
 use Semitexa\Core\Tenant\Layer\OrganizationLayer;
 use Semitexa\Core\Tenant\TenantContextStoreInterface;
@@ -115,7 +116,13 @@ final class WebhookAuthHandler implements AuthHandlerInterface
         ));
 
         if (!$result->verified) {
-            throw new AuthenticationException('Webhook signature rejected: ' . $result->reason);
+            // The reason stays in the log: in the answer it told any caller
+            // which env var holds the secret, and the server's clock.
+            StaticLoggerBridge::warning('webhooks', 'Webhook signature rejected.', [
+                'receiver' => $payload::class,
+                'reason' => $result->reason,
+            ]);
+            throw new AuthenticationException('Webhook signature rejected.');
         }
 
         // Prefer the explicit receiver name from #[AsWebhookReceiver] when
