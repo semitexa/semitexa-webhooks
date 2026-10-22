@@ -63,7 +63,7 @@ final class WebhookReplayOutboundCommandTest extends TestCase
         $saved = new class { public int $count = 0; };
         $outbox = $this->createStub(OutboundDeliveryRepositoryInterface::class);
         $outbox->method('findById')->willReturn($delivery);
-        $outbox->method('save')->willReturnCallback(static function () use ($saved): void { $saved->count++; });
+        $outbox->method('resetToPendingUnlessLeased')->willReturnCallback(static function () use ($saved): bool { $saved->count++; return true; });
         $attempts = $this->createStub(WebhookAttemptRepositoryInterface::class);
 
         $container = new class ($outbox, $attempts) implements ContainerInterface {

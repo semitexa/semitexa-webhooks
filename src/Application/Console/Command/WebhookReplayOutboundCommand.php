@@ -78,8 +78,15 @@ final class WebhookReplayOutboundCommand extends Command
             }
 
             $statusBefore = $delivery->getStatus()->value;
+            // The checks above answer the operator; this decides. A worker
+            // may have claimed the row since it was read.
+            if (!$outboxRepo->resetToPendingUnlessLeased($delivery->getId(), (bool) $input->getOption('force'))) {
+                $io->error($outboxRepo->findById($id) === null
+                    ? "Outbound delivery not found: {$id}"
+                    : "Outbound delivery {$id} was claimed by a worker just now; try again after its lease.");
+                return Command::FAILURE;
+            }
             $delivery->resetToPending();
-            $outboxRepo->save($delivery);
 
             $attemptRepo->save(new WebhookAttempt(
                 id: Uuid7::generate(),

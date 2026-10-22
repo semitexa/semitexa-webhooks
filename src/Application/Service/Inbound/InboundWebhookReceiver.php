@@ -189,9 +189,10 @@ final class InboundWebhookReceiver
         if ($delivery->getStatus() === InboundStatus::DuplicateIgnored) {
             throw new \RuntimeException("Inbound delivery {$delivery->getId()} is a duplicate of another; replay that one.");
         }
-        // A worker is on it now: a replay would run it twice at once.
-        if ($delivery->getStatus() === InboundStatus::Processing) {
-            throw new \RuntimeException("Inbound delivery {$delivery->getId()} is being processed right now.");
+        // A worker is on it now: a replay would run it twice at once. With
+        // force, one stuck there for 15 minutes (its worker died) is taken.
+        if ($delivery->getStatus() === InboundStatus::Processing && !$force) {
+            throw new \RuntimeException("Inbound delivery {$delivery->getId()} is being processed right now; with force, one stuck for 15 minutes is taken over.");
         }
         // Processed means its side effects happened: running them again is a
         // decision, so it takes force.
@@ -199,6 +200,11 @@ final class InboundWebhookReceiver
             throw new \RuntimeException("Inbound delivery {$delivery->getId()} was already processed. Replay with force to run it again.");
         }
 
+        // The checks above answer the caller; this decides: a second replay
+        // started at the same moment passed them too.
+        if (!$this->inboxRepo->claimForReplay($delivery->getId(), $force)) {
+            throw new \RuntimeException("Inbound delivery {$delivery->getId()} is being worked on (a provider retry, a replay or a worker) or has not been still for 15 minutes; try again later.");
+        }
         $this->inboundService->markProcessing($delivery);
         try {
             $processor->process(new InboundWebhookEnvelope(

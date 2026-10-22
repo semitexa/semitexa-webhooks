@@ -224,6 +224,34 @@ SQL);
         self::assertSame('worker-B', $second->getLeaseOwner());
     }
 
+    /** A send that killed its worker every time was reclaimed for good, whatever attempt_count said. */
+    #[Test]
+    public function a_delivery_whose_worker_died_every_attempt_fails_when_attempts_run_out(): void
+    {
+        $this->makeDelivery('idem-crash-loop', maxAttempts: 2);
+
+        $this->repo->claimAndLease('worker-A', new \DateTimeImmutable('-1 second'));
+        $this->repo->claimAndLease('worker-B', new \DateTimeImmutable('-1 second'));
+
+        self::assertNull($this->repo->claimAndLease('worker-C', new \DateTimeImmutable('+60 seconds')));
+        self::assertSame('failed', $this->dbRow('idem-crash-loop')['status']);
+    }
+
+    /** Checked, then saved, the reset could land on a row a worker had just claimed. */
+    #[Test]
+    public function a_reset_never_lands_on_a_live_lease_or_a_delivered_row_without_force(): void
+    {
+        $leased = $this->makeDelivery('idem-reset-leased');
+        $this->repo->claimAndLease('worker-A', new \DateTimeImmutable('+60 seconds'));
+        $delivered = $this->makeDelivery('idem-reset-delivered', OutboundStatus::Delivered);
+
+        self::assertFalse($this->repo->resetToPendingUnlessLeased($leased->getId(), true));
+        self::assertSame('delivering', $this->dbRow('idem-reset-leased')['status']);
+        self::assertFalse($this->repo->resetToPendingUnlessLeased($delivered->getId(), false));
+        self::assertTrue($this->repo->resetToPendingUnlessLeased($delivered->getId(), true));
+        self::assertSame('pending', $this->dbRow('idem-reset-delivered')['status']);
+    }
+
     #[Test]
     public function attempt_count_continues_to_increment_across_lease_reclaims(): void
     {

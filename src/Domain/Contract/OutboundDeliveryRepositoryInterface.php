@@ -35,6 +35,13 @@ interface OutboundDeliveryRepositoryInterface
     public function insertOrMatchIdempotency(OutboundDelivery $delivery): OutboundDelivery;
 
     /**
+     * Make the delivery due again from scratch — unless a worker holds a live
+     * lease on it, or it was delivered and $allowDelivered is false. One
+     * statement, so it cannot land on a claim made after a check.
+     */
+    public function resetToPendingUnlessLeased(string $deliveryId, bool $allowDelivered): bool;
+
+    /**
      * Atomic claim-and-lease: finds a due row (pending / retry_scheduled, or
      * delivering with an EXPIRED lease) and atomically sets lease_owner,
      * lease_expires_at, status='delivering', AND increments attempt_count.

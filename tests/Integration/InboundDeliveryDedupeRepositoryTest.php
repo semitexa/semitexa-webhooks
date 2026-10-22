@@ -201,6 +201,57 @@ SQL);
         self::assertSame(1, $this->rowCount('dedupe-test-failed'));
     }
 
+    /** The request that stored it died before processing: every retry was ignored as its duplicate. */
+    #[Test]
+    public function a_row_abandoned_before_processing_is_handed_to_the_next_retry(): void
+    {
+        $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-abandoned'));
+        $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-fresh'));
+        $this->orm->getAdapter()->execute(
+            "UPDATE webhook_inbox SET updated_at = '2001-01-01 00:00:00' WHERE dedupe_key = 'dedupe-test-abandoned'",
+        );
+
+        self::assertSame(InboundStatus::Received, $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-abandoned'))->getStatus());
+        self::assertSame(InboundStatus::DuplicateIgnored, $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-abandoned'))->getStatus(), 'claimed once');
+        self::assertSame(InboundStatus::DuplicateIgnored, $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-fresh'))->getStatus(), 'a request may still be on a fresh one');
+    }
+
+    /** Received without a processor, a delivery rests in verified: a later repeat is a duplicate, not new work. */
+    #[Test]
+    public function an_old_verified_row_is_a_duplicate_not_abandoned(): void
+    {
+        $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-resting'));
+        $this->orm->getAdapter()->execute(
+            "UPDATE webhook_inbox SET status = 'verified', updated_at = '2001-01-01 00:00:00' WHERE dedupe_key = 'dedupe-test-resting'",
+        );
+
+        self::assertSame(InboundStatus::DuplicateIgnored, $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-resting'))->getStatus());
+    }
+
+    #[Test]
+    public function two_replays_at_once_cannot_both_take_a_delivery(): void
+    {
+        $row = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-replay'));
+        $this->orm->getAdapter()->execute("UPDATE webhook_inbox SET signature_status = 'verified', status = 'failed' WHERE dedupe_key = 'dedupe-test-replay'");
+
+        self::assertTrue($this->repo->claimForReplay($row->getId(), false));
+        self::assertFalse($this->repo->claimForReplay($row->getId(), false), 'processing now');
+        self::assertFalse($this->repo->claimForReplay($row->getId(), true), 'and not stuck: it started a moment ago');
+    }
+
+    /** A replay taking a row a provider retry was moving on ran the processor twice. */
+    #[Test]
+    public function a_replay_takes_a_waiting_row_only_once_it_has_been_still(): void
+    {
+        $row = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-waiting'));
+        $this->orm->getAdapter()->execute("UPDATE webhook_inbox SET signature_status = 'verified', status = 'verified' WHERE dedupe_key = 'dedupe-test-waiting'");
+
+        self::assertFalse($this->repo->claimForReplay($row->getId(), false));
+
+        $this->orm->getAdapter()->execute("UPDATE webhook_inbox SET updated_at = '2001-01-01 00:00:00' WHERE dedupe_key = 'dedupe-test-waiting'");
+        self::assertTrue($this->repo->claimForReplay($row->getId(), false));
+    }
+
     #[Test]
     public function different_dedupe_keys_create_independent_rows(): void
     {

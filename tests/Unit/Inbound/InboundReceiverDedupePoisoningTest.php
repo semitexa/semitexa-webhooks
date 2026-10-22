@@ -272,6 +272,17 @@ final class PoisoningInbox implements InboundDeliveryRepositoryInterface
     public function findById(string $id): ?InboundDelivery { return null; }
     public function save(object $entity): void {}
     public function findByDedupeKey(string $dedupeKey): ?InboundDelivery { return $this->byKey[$dedupeKey] ?? null; }
+    public function claimForReplay(string $id, bool $allowProcessed): bool
+    {
+        foreach ($this->byKey as $delivery) {
+            if ($delivery->getId() === $id) {
+                return !in_array($delivery->getStatus(), [InboundStatus::Processing, InboundStatus::DuplicateIgnored], true)
+                    && ($delivery->getStatus() !== InboundStatus::Processed || $allowProcessed);
+            }
+        }
+
+        return true;
+    }
     public function findByStatus(string $status, int $limit = 50): array { return []; }
     public function deleteTerminalOlderThan(\DateTimeImmutable $cutoff, ?int $limit = null, ?string $tenantId = null): int { return 0; }
     public function countTerminalOlderThan(\DateTimeImmutable $cutoff, ?string $tenantId = null): int { return 0; }

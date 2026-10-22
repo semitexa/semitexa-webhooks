@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Db\MySQL\Repository;
 
+use Semitexa\Orm\Exception\LockWaitTimeoutException;
+use Semitexa\Orm\Exception\DeadlockException;
+use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesRepositoryContract;
 use Semitexa\Orm\OrmManager;
@@ -100,6 +103,31 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
     public function claimAndLease(string $workerId, \DateTimeImmutable $leaseExpiresAt, int $limit = 1): ?OutboundDelivery
     {
         $now = new \DateTimeImmutable();
+
+        // A send that killed its worker every time came back as an expired
+        // lease and was claimed again, whatever attempt_count said, for good.
+        // Out of attempts, it is failed instead.
+        // Best effort: a deadlock or lock wait here must not end the worker,
+        // the next poll sweeps again.
+        try {
+            $swept = $this->adapter()->execute(
+                "UPDATE webhook_outbox
+                 SET status = :failed, lease_owner = NULL, lease_expires_at = NULL,
+                     last_error = 'The worker stopped during every attempt: attempts exhausted.'
+                 WHERE status = :delivering AND lease_expires_at IS NOT NULL AND lease_expires_at < :now
+                   AND attempt_count >= max_attempts",
+                [
+                    'failed' => OutboundStatus::Failed->value,
+                    'delivering' => OutboundStatus::Delivering->value,
+                    'now' => $now->format('Y-m-d H:i:s.u'),
+                ],
+            )->rowCount;
+            if ($swept > 0) {
+                StaticLoggerBridge::warning('webhooks', 'Outbound deliveries failed: their worker stopped during every attempt.', ['count' => $swept]);
+            }
+        } catch (DeadlockException|LockWaitTimeoutException) {
+        }
+
         // The candidate select only narrows the row set for the conditional
         // UPDATE — it never decides ownership on its own. Ownership is
         // decided by the UPDATE's WHERE clause, which re-checks the
@@ -130,7 +158,8 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
                      OR
                        (status = :delivering_check
                         AND lease_expires_at IS NOT NULL
-                        AND lease_expires_at < :now_lease_delivering)
+                        AND lease_expires_at < :now_lease_delivering
+                        AND attempt_count < max_attempts)
                    )",
                 [
                     'worker_id' => $workerId,
@@ -167,6 +196,36 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
         }
 
         return null;
+    }
+
+    public function resetToPendingUnlessLeased(string $deliveryId, bool $allowDelivered): bool
+    {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s.u');
+
+        // One statement: checked first and saved after, the reset could land
+        // on a row a worker had just claimed, strip its lease, and the next
+        // worker sent it a second time.
+        return $this->adapter()->execute(
+            "UPDATE webhook_outbox
+             SET status = :pending, next_attempt_at = :now_next, attempt_count = 0,
+                 lease_owner = NULL, lease_expires_at = NULL, last_error = NULL
+             WHERE id = :id
+               AND NOT (status = :delivering AND lease_expires_at IS NOT NULL AND lease_expires_at > :now_lease)
+               AND (status <> :delivered OR :allow_delivered = 1)",
+            [
+                'pending' => OutboundStatus::Pending->value,
+                'delivering' => OutboundStatus::Delivering->value,
+                'delivered' => OutboundStatus::Delivered->value,
+                'now_next' => $now,
+                'now_lease' => $now,
+                'allow_delivered' => $allowDelivered ? 1 : 0,
+                'id' => $this->normalizeId($deliveryId),
+            ],
+        )->rowCount > 0
+            // MySQL counts changed rows: a row already pending, due and with
+            // no lease (a second replay within the same second) changed
+            // nothing, and is reset all the same.
+            || (($row = $this->findById($deliveryId)) !== null && $row->getStatus() === OutboundStatus::Pending && $row->getLeaseOwner() === null);
     }
 
     public function markDeliveredIfOwned(
