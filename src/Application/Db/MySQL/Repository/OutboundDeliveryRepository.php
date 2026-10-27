@@ -128,7 +128,10 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
             if ($swept > 0) {
                 StaticLoggerBridge::warning('webhooks', 'Outbound deliveries failed: their worker stopped during every attempt.', ['count' => $swept]);
             }
-        } catch (DeadlockException|LockWaitTimeoutException) {
+        } catch (DeadlockException|LockWaitTimeoutException $e) {
+            // Exhausted deliveries stay delivering until a later sweep wins;
+            // the candidate select below passes them over meanwhile.
+            StaticLoggerBridge::warning('webhooks', 'Outbound exhausted-delivery sweep skipped: those deliveries stay delivering until a later poll sweeps them.', ['error' => $e->getMessage()]);
         }
 
         // The candidate select only narrows the row set for the conditional
@@ -440,7 +443,9 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
         //     either dead, hung, or partitioned. Reclaiming such a row is
         //     part of the retry contract; the conditional UPDATE in
         //     claimAndLease() only commits if the row is still in either
-        //     of these states by the time the UPDATE executes.
+        //     of these states by the time the UPDATE executes. Not one out
+        //     of attempts: the UPDATE refuses it, and as the oldest due row
+        //     it took the poll's only slot while due rows behind it waited.
         $rows = $this->adapter()->execute(
             "SELECT id
              FROM webhook_outbox
@@ -451,7 +456,8 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
                OR
                  (status = :delivering
                   AND lease_expires_at IS NOT NULL
-                  AND lease_expires_at < {$now})
+                  AND lease_expires_at < {$now}
+                  AND attempt_count < max_attempts)
              )
              ORDER BY next_attempt_at ASC
              LIMIT :limit",

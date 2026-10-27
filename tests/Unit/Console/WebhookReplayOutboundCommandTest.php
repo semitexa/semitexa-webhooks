@@ -42,28 +42,36 @@ final class WebhookReplayOutboundCommandTest extends TestCase
         [$tester, $saved] = $this->replay($this->delivery(OutboundStatus::Delivered), ['--force' => true]);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
         self::assertSame(1, $saved->count);
+        self::assertTrue($saved->allowDelivered, '--force reaches the reset, or it refuses a delivered row');
     }
 
     #[Test]
     public function a_failed_one_and_a_stale_lease_are_reset(): void
     {
-        [$tester] = $this->replay($this->delivery(OutboundStatus::Failed));
+        [$tester, $saved] = $this->replay($this->delivery(OutboundStatus::Failed));
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
+        self::assertFalse($saved->allowDelivered, 'without --force the reset may not touch a delivered row');
 
-        [$tester] = $this->replay($this->delivery(OutboundStatus::Delivering, new \DateTimeImmutable('-1 minute')));
+        [$tester, $saved] = $this->replay($this->delivery(OutboundStatus::Delivering, new \DateTimeImmutable('-1 minute')));
         self::assertSame(Command::SUCCESS, $tester->getStatusCode(), 'a lease that ran out belongs to a worker that died');
+        self::assertFalse($saved->allowDelivered);
     }
 
     /**
      * @param array<string, mixed> $options
-     * @return array{CommandTester, object{count: int}}
+     * @return array{CommandTester, object{count: int, allowDelivered: ?bool}}
      */
     private function replay(OutboundDelivery $delivery, array $options = []): array
     {
-        $saved = new class { public int $count = 0; };
+        $saved = new class { public int $count = 0; public ?bool $allowDelivered = null; };
         $outbox = $this->createStub(OutboundDeliveryRepositoryInterface::class);
         $outbox->method('findById')->willReturn($delivery);
-        $outbox->method('resetToPendingUnlessLeased')->willReturnCallback(static function () use ($saved): bool { $saved->count++; return true; });
+        $outbox->method('resetToPendingUnlessLeased')->willReturnCallback(static function (string $id, bool $allowDelivered) use ($saved): bool {
+            $saved->count++;
+            $saved->allowDelivered = $allowDelivered;
+
+            return true;
+        });
         $attempts = $this->createStub(WebhookAttemptRepositoryInterface::class);
 
         $container = new class ($outbox, $attempts) implements ContainerInterface {

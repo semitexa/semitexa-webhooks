@@ -49,7 +49,9 @@ final class CurlWebhookTransport implements WebhookTransportInterface
             return TransportResult::failure(null, "Endpoint {$delivery->getEndpointKey()} belongs to another tenant now.", permanent: true);
         }
         // Disabling an endpoint stopped new deliveries only: those queued and
-        // retrying kept going out. Retried, so enabling it again lets them through.
+        // retrying kept going out. Retried like a failed send, each try an
+        // attempt: enabled again before they run out, it gets them; after
+        // that they are failed, and webhook:replay:outbound sends them.
         if (!$endpoint->isEnabled()) {
             return TransportResult::failure(null, "Endpoint {$delivery->getEndpointKey()} is disabled.");
         }
@@ -97,8 +99,9 @@ final class CurlWebhookTransport implements WebhookTransportInterface
             try {
                 $signature = $this->signer->sign($body, $endpoint->getSecretRef(), 'sha256', $endpoint->getTenantId());
             } catch (\RuntimeException $e) {
-                // Not sent unsigned. Retried as usual, so setting the secret
-                // lets the delivery through without replaying it by hand.
+                // Not sent unsigned. Retried as usual, each try an attempt:
+                // a secret set before they run out lets the delivery through;
+                // after that it is failed, and webhook:replay:outbound sends it.
                 return TransportResult::failure(null, $e->getMessage());
             }
             foreach ($signature as $key => $value) {

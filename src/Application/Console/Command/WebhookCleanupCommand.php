@@ -54,6 +54,9 @@ final class WebhookCleanupCommand extends Command
     #[InjectAsReadonly]
     protected ContainerInterface $container;
 
+    /** The replay-key cell of a run whose replay store failed; the run then fails too. */
+    private const REPLAY_FAILED = '(error)';
+
     protected function configure(): void
     {
         $this
@@ -152,7 +155,10 @@ final class WebhookCleanupCommand extends Command
             $io->note('Tenant-scoped run: webhook_attempts retention is global; run without --tenant for an attempts-only pass.');
         }
 
-        return Command::SUCCESS;
+        // A replay store that could not be built or cleaned keeps its expired
+        // keys. The table says so, but a scheduler reads only the exit status:
+        // it reported success, and nobody looked.
+        return $replayLine === self::REPLAY_FAILED ? Command::FAILURE : Command::SUCCESS;
     }
 
     /**
@@ -177,7 +183,7 @@ final class WebhookCleanupCommand extends Command
         } catch (\Throwable $e) {
             // Something is bound and could not be built: say so, it is not "no backing".
             $io->writeln('<error>Replay store could not be built: ' . $e->getMessage() . '</error>');
-            return '(error)';
+            return self::REPLAY_FAILED;
         }
 
         if (!$store instanceof ExpiringWebhookReplayStoreInterface) {
@@ -193,7 +199,7 @@ final class WebhookCleanupCommand extends Command
             return (string) $count;
         } catch (\Throwable $e) {
             $io->writeln('<error>Replay store cleanup failed: ' . $e->getMessage() . '</error>');
-            return '(error)';
+            return self::REPLAY_FAILED;
         }
     }
 }

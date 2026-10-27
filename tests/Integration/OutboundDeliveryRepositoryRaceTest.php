@@ -259,6 +259,26 @@ SQL);
         self::assertSame('failed', $this->dbRow('idem-crash-loop')['status']);
     }
 
+    /**
+     * A sweep that lost a lock wait leaves an exhausted row delivering. As the
+     * oldest due row it took the poll's only candidate slot, the claim refused
+     * it, and the poll came back empty while a due delivery waited behind it.
+     */
+    #[Test]
+    public function an_exhausted_row_the_sweep_left_does_not_take_the_polls_slot(): void
+    {
+        $this->makeDelivery('idem-exhausted', nextAttemptAt: new \DateTimeImmutable('-1 hour'), maxAttempts: 1);
+        $this->repo->claimAndLease('worker-A', new \DateTimeImmutable('-1 second'));
+        $this->makeDelivery('idem-due');
+        self::assertSame(['delivering', '1'], [$this->dbRow('idem-exhausted')['status'], (string) $this->dbRow('idem-exhausted')['attempt_count']], 'out of attempts, lease run out, not swept yet');
+
+        $now = (new \ReflectionMethod(OutboundDeliveryRepository::class, 'sqlNow'))->invoke($this->repo);
+        $candidates = (new \ReflectionMethod(OutboundDeliveryRepository::class, 'selectClaimCandidateIds'))->invoke($this->repo, $now, 1);
+        $due = $this->orm->getAdapter()->execute("SELECT id FROM webhook_outbox WHERE idempotency_key = 'idem-due'")->fetchColumn();
+
+        self::assertSame([(string) $due], $candidates);
+    }
+
     /** Checked, then saved, the reset could land on a row a worker had just claimed. */
     #[Test]
     public function a_reset_never_lands_on_a_live_lease_or_a_delivered_row_without_force(): void

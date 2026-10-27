@@ -279,8 +279,11 @@ final class InboundDeliveryRepository implements InboundDeliveryRepositoryInterf
         // while a provider retry runs it would run the processor twice. Such
         // rows, and one stuck in processing (a worker that died mid-run, with
         // force), only once they have been still for ABANDONED_AFTER_SECONDS.
+        // processing_started_at restarts with the claim: a processed row kept
+        // the one of its first run, so a second forced replay read the row it
+        // had just lost as stuck and ran the processor again.
         return $this->adapter()->execute(
-            "UPDATE webhook_inbox SET status = 'processing', updated_at = :now
+            "UPDATE webhook_inbox SET status = 'processing', updated_at = :now, processing_started_at = :now_started
              WHERE id = :id AND signature_status = 'verified'
                AND (
                     status = 'failed'
@@ -295,6 +298,7 @@ final class InboundDeliveryRepository implements InboundDeliveryRepositoryInterf
                 'stale_waiting' => $stale,
                 'stale_processing' => $stale,
                 'now' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s'),
+                'now_started' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s'),
             ],
         )->rowCount === 1;
     }

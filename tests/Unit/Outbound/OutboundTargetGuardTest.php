@@ -25,18 +25,40 @@ final class OutboundTargetGuardTest extends TestCase
         yield 'name resolving inside' => ['https://internal.example/hook'];
         yield 'non-http scheme' => ['file:///etc/passwd'];
         yield 'gopher' => ['gopher://example.com/'];
-        // cURL spells these differently than they were checked (punycode,
-        // %-decoded), misses the pinned entry and resolves them afresh.
-        yield 'international name' => ['http://ä.hooks.example/hook'];
-        yield 'percent-escaped name' => ['http://hooks%2eexample/hook'];
         yield 'nat64 metadata' => ['http://[64:ff9b::a9fe:a9fe]/'];
         yield 'local nat64' => ['http://[64:ff9b:1::808:808]/'];
         yield '6to4 metadata' => ['http://[2002:a9fe:a9fe::1]/'];
         yield 'site-local' => ['http://[fec0::1]/'];
         yield '6to4 relay' => ['http://192.88.99.1/'];
-        yield 'short loopback' => ['http://127.1/'];
-        yield 'hex loopback' => ['http://0x7f.1/'];
-        yield 'decimal loopback' => ['http://2130706433/'];
+    }
+
+    /**
+     * cURL spells these differently than they were checked (punycode,
+     * %-decoded) and misses the pinned entry, or reads them as an address
+     * itself: resolved afresh, unchecked. A resolver that answers a public
+     * address for every name leaves only the spelling checks to refuse them.
+     *
+     * @return iterable<string, array{string, string}>
+     */
+    public static function respelledTargets(): iterable
+    {
+        $ascii = 'Webhook target host must be a plain ASCII name (write an international name in its xn-- form).';
+        $numeric = 'Webhook target host looks like an address but is not one written in full.';
+        yield 'international name' => ['http://ä.hooks.example/hook', $ascii];
+        yield 'percent-escaped name' => ['http://hooks%2eexample/hook', $ascii];
+        yield 'short loopback' => ['http://127.1/', $numeric];
+        yield 'hex loopback' => ['http://0x7f.1/', $numeric];
+        yield 'decimal loopback' => ['http://2130706433/', $numeric];
+    }
+
+    #[Test]
+    #[DataProvider('respelledTargets')]
+    public function a_host_curl_would_spell_another_way_is_refused_before_it_is_resolved(string $url, string $message): void
+    {
+        $this->expectException(BlockedTargetException::class);
+        $this->expectExceptionMessage($message);
+
+        (new OutboundTargetGuard(static fn (): array => ['93.184.216.34']))->check($url, allowPrivate: false);
     }
 
     #[Test]
@@ -88,7 +110,7 @@ final class OutboundTargetGuardTest extends TestCase
             (new OutboundTargetGuard(static fn (): array => ['10.1.2.3']))->check('https://billing.internal/hook', allowPrivate: false);
             self::fail('blocked');
         } catch (BlockedTargetException $e) {
-            self::assertStringNotContainsString('10.1.2.3', $e->getMessage());
+            self::assertSame('Webhook target host "billing.internal" resolves to a non-public address; set WEBHOOK_ALLOW_PRIVATE_TARGETS=true to allow it.', $e->getMessage());
         }
     }
 

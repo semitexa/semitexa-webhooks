@@ -105,7 +105,7 @@ final class WebhookTransportHttpClientTest extends TestCase
         $result = $this->transport($http, secretRef: 'env:SEMITEXA_MISSING_SECRET_' . bin2hex(random_bytes(4)))->send($this->delivery());
 
         self::assertFalse($result->success);
-        self::assertFalse($result->permanent, 'retried, so setting the secret lets it through');
+        self::assertFalse($result->permanent, 'retried: a secret set before its attempts run out lets it through');
         $http->assertSentCount(0);
     }
 
@@ -138,16 +138,20 @@ final class WebhookTransportHttpClientTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    /** Disabling an endpoint stopped new deliveries only: the queued and retrying ones kept going out. */
+    /**
+     * Disabling an endpoint stopped new deliveries only: the queued and
+     * retrying ones kept going out. Now each try fails, retried and counted
+     * as an attempt, so it is not permanent at once.
+     */
     #[Test]
-    public function a_disabled_endpoint_sends_nothing_and_its_delivery_waits(): void
+    public function a_disabled_endpoint_sends_nothing_and_its_delivery_is_retried(): void
     {
         $http = new FakeHttpClient();
 
         $result = $this->transport($http, enabled: false)->send($this->delivery());
 
         self::assertFalse($result->success);
-        self::assertFalse($result->permanent, 'enabled again, it goes out');
+        self::assertFalse($result->permanent, 'enabled again before its attempts run out, it goes out');
         self::assertSame([], $http->recorded());
     }
 

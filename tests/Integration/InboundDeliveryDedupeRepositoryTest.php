@@ -239,6 +239,24 @@ SQL);
         self::assertFalse($this->repo->claimForReplay($row->getId(), true), 'and not stuck: it started a moment ago');
     }
 
+    /**
+     * A processed row keeps the processing_started_at of its first run, hours
+     * old: a second forced replay, before the first one's own save, read the
+     * row it had just lost as stuck and ran the processor again.
+     */
+    #[Test]
+    public function a_forced_replay_of_a_row_processed_long_ago_is_taken_once(): void
+    {
+        $row = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-forced'));
+        $this->orm->getAdapter()->execute("UPDATE webhook_inbox SET signature_status = 'verified', status = 'processed', processing_started_at = '2001-01-01 00:00:00' WHERE dedupe_key = 'dedupe-test-forced'");
+
+        self::assertTrue($this->repo->claimForReplay($row->getId(), true));
+        // The second replay a second later. In the same second its UPDATE
+        // would change nothing, and MySQL reports no row: refused by luck.
+        $this->orm->getAdapter()->execute("UPDATE webhook_inbox SET updated_at = '2001-01-01 00:00:01' WHERE dedupe_key = 'dedupe-test-forced'");
+        self::assertFalse($this->repo->claimForReplay($row->getId(), true), 'processing since a moment ago, not stuck');
+    }
+
     /** A replay taking a row a provider retry was moving on ran the processor twice. */
     #[Test]
     public function a_replay_takes_a_waiting_row_only_once_it_has_been_still(): void
