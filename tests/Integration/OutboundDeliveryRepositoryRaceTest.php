@@ -224,6 +224,28 @@ SQL);
         self::assertSame('worker-B', $second->getLeaseOwner());
     }
 
+    /**
+     * The database's clock judges a lease, not the worker's: a worker whose
+     * clock ran ahead took over a live lease and sent the delivery a second
+     * time. A zone fourteen hours ahead stands in for that clock.
+     */
+    #[Test]
+    public function a_worker_whose_clock_runs_ahead_cannot_take_a_live_lease(): void
+    {
+        $this->makeDelivery('idem-clock-skew');
+        self::assertNotNull($this->repo->claimAndLease('worker-A', new \DateTimeImmutable('+60 seconds')));
+
+        $zone = date_default_timezone_get();
+        date_default_timezone_set('Pacific/Kiritimati');
+        try {
+            $stolen = $this->repo->claimAndLease('worker-B', new \DateTimeImmutable('+60 seconds'));
+        } finally {
+            date_default_timezone_set($zone);
+        }
+
+        self::assertNull($stolen, 'worker-A holds it for a minute by the database clock');
+    }
+
     /** A send that killed its worker every time was reclaimed for good, whatever attempt_count said. */
     #[Test]
     public function a_delivery_whose_worker_died_every_attempt_fails_when_attempts_run_out(): void
