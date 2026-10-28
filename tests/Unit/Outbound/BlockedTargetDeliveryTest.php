@@ -120,7 +120,7 @@ final class BlockedTargetDeliveryTest extends TestCase
     private function transport(string $targetUrl, bool $allowPrivate, int $timeout = 5): CurlWebhookTransport
     {
         $endpoints = $this->createStub(WebhookEndpointDefinitionRepositoryInterface::class);
-        $endpoints->method('findByEndpointKey')->willReturn(new WebhookEndpointDefinition(
+        $endpoints->method('findById')->willReturn(new WebhookEndpointDefinition(
             id: 'ep-1',
             endpointKey: 'orders',
             direction: WebhookDirection::Outbound,

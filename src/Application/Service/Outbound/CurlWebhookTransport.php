@@ -6,6 +6,11 @@ namespace Semitexa\Webhooks\Application\Service\Outbound;
 
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
+use Semitexa\Core\Http\Client\CurlHttpClient;
+use Semitexa\Core\Http\Client\HttpCallOptions;
+use Semitexa\Core\Http\Client\HttpClientInterface;
+use Semitexa\Core\Http\Client\HttpRequest;
+use Semitexa\Core\Http\Exception\HttpTransportException;
 use Semitexa\Webhooks\Configuration\WebhookConfig;
 use Semitexa\Webhooks\Domain\Contract\WebhookEndpointDefinitionRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookTransportInterface;
@@ -24,13 +29,31 @@ final class CurlWebhookTransport implements WebhookTransportInterface
     #[InjectAsReadonly]
     protected WebhookConfig $config;
 
+    #[InjectAsReadonly]
+    protected HttpClientInterface $http;
+
+    private const MAX_LOGGED_RESPONSE_BYTES = 65_536;
+
     private ?OutboundTargetGuard $targetGuard = null;
 
     public function send(OutboundDelivery $delivery): TransportResult
     {
-        $endpoint = $this->endpointRepo->findByEndpointKey($delivery->getEndpointKey());
+        // The endpoint the delivery was queued for, by id: found by key, a
+        // key deleted and created again — by another tenant, say — received
+        // the old one's payloads, signed with the new secret.
+        $endpoint = $this->endpointRepo->findById($delivery->getEndpointDefinitionId());
         if ($endpoint === null) {
-            return TransportResult::failure(null, "Endpoint not found: {$delivery->getEndpointKey()}");
+            return TransportResult::failure(null, "Endpoint not found: {$delivery->getEndpointKey()}", permanent: true);
+        }
+        if (($endpoint->getTenantId() ?? '') !== ($delivery->getTenantId() ?? '')) {
+            return TransportResult::failure(null, "Endpoint {$delivery->getEndpointKey()} belongs to another tenant now.", permanent: true);
+        }
+        // Disabling an endpoint stopped new deliveries only: those queued and
+        // retrying kept going out. Retried like a failed send, each try an
+        // attempt: enabled again before they run out, it gets them; after
+        // that they are failed, and webhook:replay:outbound sends them.
+        if (!$endpoint->isEnabled()) {
+            return TransportResult::failure(null, "Endpoint {$delivery->getEndpointKey()} is disabled.");
         }
 
         if ($endpoint->getTargetUrl() === null || $endpoint->getTargetUrl() === '') {
@@ -46,72 +69,100 @@ final class CurlWebhookTransport implements WebhookTransportInterface
 
         $body = $delivery->getPayloadJson();
 
-        // Build headers
-        $headers = ['Content-Type: application/json'];
-
-        // Default headers from endpoint definition
-        if ($endpoint->getDefaultHeaders() !== null) {
-            foreach ($endpoint->getDefaultHeaders() as $key => $value) {
-                $headers[] = "{$key}: {$value}";
-            }
+        // Build headers: the endpoint's defaults, the delivery's own, then the
+        // signature, each later one replacing an earlier of the same name.
+        $headers = [
+            'Content-Type' => 'application/json',
+            'X-Webhook-Event-Type' => $delivery->getEventType(),
+        ];
+        foreach ($endpoint->getDefaultHeaders() ?? [] as $key => $value) {
+            $headers[(string) $key] = (string) $value;
         }
-
-        // Custom headers from delivery
         if ($delivery->getHeadersJson() !== null) {
             $customHeaders = json_decode($delivery->getHeadersJson(), true);
             if (is_array($customHeaders)) {
                 foreach ($customHeaders as $key => $value) {
-                    $headers[] = "{$key}: {$value}";
+                    $headers[(string) $key] = (string) $value;
                 }
             }
         }
-
-        // Sign request if configured
+        // The outbox id, the same on every retry: each retry is signed with a
+        // new timestamp, so a receiver had nothing stable to recognise a
+        // second copy by. The inbound side dedupes on it (bound to the body),
+        // so it is reserved: a configured header of that name, in any case,
+        // would give two distinct deliveries one id and drop the second.
+        foreach (array_keys($headers) as $key) {
+            if (strcasecmp((string) $key, 'X-Webhook-Event-Id') === 0) {
+                unset($headers[$key]);
+            }
+        }
+        $headers['X-Webhook-Event-Id'] = $delivery->getId();
+        if ($endpoint->getSigningMode() !== null && ($endpoint->getSecretRef() ?? '') === '') {
+            // Signing asked for, nothing to sign with: never sent unsigned.
+            // Permanent: only a change to the endpoint row can fix it.
+            return TransportResult::failure(null, "Endpoint {$endpoint->getEndpointKey()} signs its webhooks but names no secret_ref.", permanent: true);
+        }
         if ($endpoint->getSigningMode() !== null && $endpoint->getSecretRef() !== null) {
-            $signedHeaders = $this->signer->sign($body, $endpoint->getSecretRef(), 'sha256');
-            foreach ($signedHeaders as $key => $value) {
-                $headers[] = "{$key}: {$value}";
+            try {
+                $signature = $this->signer->sign($body, $endpoint->getSecretRef(), 'sha256', $endpoint->getTenantId());
+            } catch (\RuntimeException $e) {
+                // Not sent unsigned. Retried as usual, each try an attempt:
+                // a secret set before they run out lets the delivery through;
+                // after that it is failed, and webhook:replay:outbound sends it.
+                return TransportResult::failure(null, $e->getMessage());
+            }
+            foreach ($signature as $key => $value) {
+                $headers[(string) $key] = (string) $value;
             }
         }
 
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $endpoint->getTargetUrl(),
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $body,
-            CURLOPT_HTTPHEADER => $headers,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => $endpoint->getTimeoutSeconds(),
-            CURLOPT_CONNECTTIMEOUT => min(10, $endpoint->getTimeoutSeconds()),
-            CURLOPT_FOLLOWLOCATION => false,
-            CURLOPT_HEADER => true,
-            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-            // No proxy, not even one from http_proxy/https_proxy: a proxy
-            // resolves the host itself, bypassing the pinned, guarded address.
-            CURLOPT_PROXY => '',
-        ]);
+        try {
+            // A header holding a line break would write a header of its own:
+            // HttpRequest refuses it, and resending will not change it.
+            $request = HttpRequest::make('POST', $endpoint->getTargetUrl())->withHeaders($headers)->withBody($body);
+        } catch (\InvalidArgumentException $e) {
+            return TransportResult::failure(null, 'Invalid webhook header: ' . $e->getMessage(), permanent: true);
+        }
+
         // Connect to the address the guard checked, not a fresh lookup (an IP
-        // literal needs no pinning).
+        // literal needs no pinning). No redirects: the next hop was never
+        // checked. No proxy, not even one from http_proxy/https_proxy: a proxy
+        // resolves the host itself, bypassing the pinned, guarded address. No
+        // retries here: the outbox owns them (BackoffCalculator).
+        $pinned = [];
         if (filter_var(trim($target['host'], '[]'), FILTER_VALIDATE_IP) === false) {
-            $pinned = str_contains($target['ip'], ':') ? '[' . $target['ip'] . ']' : $target['ip'];
-            curl_setopt($ch, CURLOPT_RESOLVE, [sprintf('%s:%d:%s', $target['host'], $target['port'], $pinned)]);
+            $ip = str_contains($target['ip'], ':') ? '[' . $target['ip'] . ']' : $target['ip'];
+            $pinned[] = sprintf('%s:%d:%s', $target['host'], $target['port'], $ip);
         }
 
-        $response = curl_exec($ch);
-        $errno = curl_errno($ch);
+        // 0 (nothing validates the column) used to mean curl's "no timeout";
+        // as a client timeout it would be 1 ms. The configured default instead.
+        $timeout = $endpoint->getTimeoutSeconds() > 0 ? $endpoint->getTimeoutSeconds() : $this->config->getDefaultTimeoutSeconds();
+        // Within half the lease: a send that outlives the lease is claimed and
+        // sent again by another worker while it is still running.
+        $timeout = min($timeout, max(1, intdiv($this->config->getDefaultLeaseSeconds(), 2)));
 
-        if ($errno !== 0) {
-            $error = curl_error($ch);
-            curl_close($ch);
-            return TransportResult::failure(null, "cURL error ({$errno}): {$error}");
+        try {
+            $response = $this->http()->send($request, new HttpCallOptions(
+                timeout: (float) $timeout,
+                connectTimeout: (float) min(10, $timeout),
+                // The receiver answered: its body is kept for the attempt log,
+                // cut at 64 KiB and as sent. A large or encoded reply to a
+                // delivery it processed must not turn into a redelivery.
+                maxResponseBytes: self::MAX_LOGGED_RESPONSE_BYTES,
+                truncateOversized: true,
+                decodeContent: false,
+                followRedirects: false,
+                noProxy: true,
+                pinnedResolve: $pinned,
+            ));
+        } catch (HttpTransportException $e) {
+            return TransportResult::failure(null, "Transport error ({$e->kind->value}): {$e->detail}");
         }
 
-        $httpStatus = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $headerSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-        curl_close($ch);
-
-        $responseHeaders = substr((string) $response, 0, $headerSize);
-        $responseBody = substr((string) $response, $headerSize);
+        $httpStatus = $response->status;
+        $responseHeaders = $response->rawHeaders;
+        $responseBody = $response->body;
 
         $success = $httpStatus >= 200 && $httpStatus < 300;
 
@@ -124,5 +175,11 @@ final class CurlWebhookTransport implements WebhookTransportInterface
             "HTTP {$httpStatus} response",
             $responseBody,
         );
+    }
+
+    private function http(): HttpClientInterface
+    {
+        // Set by the container; a transport built by hand (a test) gets one.
+        return isset($this->http) ? $this->http : ($this->http = new CurlHttpClient());
     }
 }

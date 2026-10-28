@@ -8,7 +8,8 @@ use Psr\Container\ContainerInterface;
 use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Webhooks\Application\Service\WebhookRetentionService;
-use Semitexa\Webhooks\Auth\MySqlWebhookReplayStore;
+use Semitexa\Webhooks\Auth\Contract\ExpiringWebhookReplayStoreInterface;
+use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -21,17 +22,17 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * command so cron + admin invocations have one entry point.
  *
  * Replay-store handling is store-aware:
- *   - MySQL backing: this command drives `cleanupExpired()` on the resolved
- *     {@see MySqlWebhookReplayStore}. Expired rows (`expires_at <= NOW`) are
- *     removed; NULL / future rows are preserved.
+ *   - A store whose keys stay until deleted (it implements
+ *     {@see ExpiringWebhookReplayStoreInterface}, as the MySQL store and a
+ *     wrapper around it do): this command drives `cleanupExpired()`. Expired
+ *     rows (`expires_at <= NOW`) are removed; NULL / future rows are preserved.
  *   - Redis backing: keys expire server-side via TTL — no cleanup work is
  *     scheduled and the command notes this.
  *   - In-memory backing: test-only — no production scheduling.
  *
- * The replay store is resolved from the container only if a binding exists
- * for {@see MySqlWebhookReplayStore}. Operators that wire Redis or the
- * in-memory default see the table cleanup run normally and a one-line note
- * for the replay store.
+ * The store is whatever the container binds to WebhookReplayStoreInterface.
+ * With Redis or the in-memory default the table cleanup runs normally and a
+ * one-line note says the replay store was skipped.
  *
  * Output discipline:
  *   The summary surfaces row counts only — never payload bodies, header
@@ -52,6 +53,9 @@ final class WebhookCleanupCommand extends Command
      */
     #[InjectAsReadonly]
     protected ContainerInterface $container;
+
+    /** The replay-key cell of a run whose replay store failed; the run then fails too. */
+    private const REPLAY_FAILED = '(error)';
 
     protected function configure(): void
     {
@@ -151,11 +155,14 @@ final class WebhookCleanupCommand extends Command
             $io->note('Tenant-scoped run: webhook_attempts retention is global; run without --tenant for an attempts-only pass.');
         }
 
-        return Command::SUCCESS;
+        // A replay store that could not be built or cleaned keeps its expired
+        // keys. The table says so, but a scheduler reads only the exit status:
+        // it reported success, and nobody looked.
+        return $replayLine === self::REPLAY_FAILED ? Command::FAILURE : Command::SUCCESS;
     }
 
     /**
-     * Resolve the MySQL replay store if wired and run cleanup against it.
+     * Resolve the bound replay store and clean it when its keys need deleting.
      * Returns a string suitable for the summary table cell — either a row
      * count, a "—" when no MySQL backing is configured, or "(error)" when
      * the call threw.
@@ -169,14 +176,18 @@ final class WebhookCleanupCommand extends Command
     private function cleanupReplayKeys(SymfonyStyle $io, bool $dryRun, int $batchSize, ?string $tenantId = null): string
     {
         try {
-            $store = $this->container->get(MySqlWebhookReplayStore::class);
-        } catch (\Throwable) {
-            $io->writeln('<comment>Replay store: no MySQL backing wired (Redis TTL or in-memory) — skipped.</comment>');
-            return '— (no MySQL backing)';
+            // The bound store, not the class: the MySQL store takes its
+            // OrmManager through the constructor, so asking the container for
+            // the class itself always failed and replay keys were never cleaned.
+            $store = $this->container->get(WebhookReplayStoreInterface::class);
+        } catch (\Throwable $e) {
+            // Something is bound and could not be built: say so, it is not "no backing".
+            $io->writeln('<error>Replay store could not be built: ' . $e->getMessage() . '</error>');
+            return self::REPLAY_FAILED;
         }
 
-        if (!$store instanceof MySqlWebhookReplayStore) {
-            $io->writeln('<comment>Replay store: resolved instance is not MySQL-backed — skipped.</comment>');
+        if (!$store instanceof ExpiringWebhookReplayStoreInterface) {
+            $io->writeln('<comment>Replay store: the bound store expires its own keys (or keeps none) — skipped.</comment>');
             return '— (no MySQL backing)';
         }
 
@@ -188,7 +199,7 @@ final class WebhookCleanupCommand extends Command
             return (string) $count;
         } catch (\Throwable $e) {
             $io->writeln('<error>Replay store cleanup failed: ' . $e->getMessage() . '</error>');
-            return '(error)';
+            return self::REPLAY_FAILED;
         }
     }
 }

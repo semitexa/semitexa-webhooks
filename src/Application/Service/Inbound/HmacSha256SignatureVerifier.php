@@ -36,26 +36,31 @@ final class HmacSha256SignatureVerifier implements WebhookSignatureVerifierInter
         if ($secret === null) {
             return VerificationResult::failure('Failed to resolve secret from ref: ' . $input->secretRef);
         }
+        // An env var that is set but empty resolved to '', and an HMAC with an
+        // empty key is one anybody can compute: every forged request passed.
+        if ($secret === '') {
+            return VerificationResult::failure('The secret for ' . $input->secretRef . ' is empty');
+        }
 
         $signatureHeader = $this->getHeader($input->headers, self::SIGNATURE_HEADER);
         if ($signatureHeader === null) {
             return VerificationResult::failure('Missing signature header: ' . self::SIGNATURE_HEADER);
         }
 
-        // Optional timestamp validation
+        // Required: without it a captured request could be sent again at any
+        // time, and the event id that dedupes deliveries is not signed. The
+        // outbound signer always sends one.
         $timestampHeader = $this->getHeader($input->headers, self::TIMESTAMP_HEADER);
-        if ($timestampHeader !== null) {
-            $timestamp = (int) $timestampHeader;
-            $drift = abs(time() - $timestamp);
-            if ($drift > self::MAX_TIMESTAMP_DRIFT_SECONDS) {
-                return VerificationResult::failure(
-                    sprintf('Timestamp drift %d seconds exceeds maximum %d', $drift, self::MAX_TIMESTAMP_DRIFT_SECONDS)
-                );
-            }
-            $signingPayload = $timestampHeader . '.' . $input->rawBody;
-        } else {
-            $signingPayload = $input->rawBody;
+        if ($timestampHeader === null || !ctype_digit($timestampHeader)) {
+            return VerificationResult::failure('Missing or malformed timestamp header: ' . self::TIMESTAMP_HEADER);
         }
+        $drift = abs(time() - (int) $timestampHeader);
+        if ($drift > self::MAX_TIMESTAMP_DRIFT_SECONDS) {
+            return VerificationResult::failure(
+                sprintf('Timestamp drift %d seconds exceeds maximum %d', $drift, self::MAX_TIMESTAMP_DRIFT_SECONDS)
+            );
+        }
+        $signingPayload = $timestampHeader . '.' . $input->rawBody;
 
         $expectedSignature = hash_hmac('sha256', $signingPayload, $secret);
 

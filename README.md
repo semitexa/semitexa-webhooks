@@ -15,7 +15,7 @@ Included in every project created by the installer (https://semitexa.com/install
 
 ## Worker
 
-Outbound deliveries are sent by a long-running worker that does not start with the web server:
+Outbound deliveries are sent by `webhook:work`, a long-running loop. In a project started with `bin/semitexa server:start` it is already running: the package declares it with `#[AsWorkerProcessSource]`, and the `worker` container runs it next to `queue:work` (`bin/semitexa worker:processes` lists them; `WORKER_REPLICAS` sets how many worker containers run). Without it, published webhooks stay `pending`. To run it by hand:
 
 ```bash
 bin/semitexa webhook:work [worker-id] [poll-interval]   # poll-interval defaults to 5 seconds

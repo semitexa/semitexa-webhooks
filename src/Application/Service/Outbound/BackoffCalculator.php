@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Service\Outbound;
 
+use Semitexa\Core\Attribute\AsService;
+
+#[AsService]
 final class BackoffCalculator
 {
     public function calculate(

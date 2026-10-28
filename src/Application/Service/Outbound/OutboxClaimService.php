@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Service\Outbound;
 
+use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Webhooks\Configuration\WebhookConfig;
 use Semitexa\Webhooks\Domain\Contract\OutboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Model\OutboundDelivery;
 
+#[AsService]
 final class OutboxClaimService
 {
     #[InjectAsReadonly]

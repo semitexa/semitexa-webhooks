@@ -25,6 +25,15 @@ interface InboundDeliveryRepositoryInterface
     public function findByDedupeKey(string $dedupeKey): ?InboundDelivery;
 
     /**
+     * Mark a verified delivery `processing` for a replay: a failed one; a
+     * processed one with $allowProcessed; one received, verified or (with
+     * $allowProcessed) stuck in processing that has not moved for 15
+     * minutes. Never a duplicate. One statement: two replays at once, or a
+     * replay and a provider retry, cannot both run it.
+     */
+    public function claimForReplay(string $id, bool $allowProcessed): bool;
+
+    /**
      * @return list<InboundDelivery>
      */
     public function findByStatus(string $status, int $limit = 50): array;

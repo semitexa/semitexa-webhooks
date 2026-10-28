@@ -172,6 +172,105 @@ SQL);
     }
 
     #[Test]
+    public function a_repeat_keeps_the_status_the_row_earned(): void
+    {
+        $first = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-processed'));
+        $first->markProcessed();
+        $this->repo->save($first);
+
+        $repeat = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-processed'));
+
+        self::assertSame(InboundStatus::DuplicateIgnored, $repeat->getStatus(), 'the caller is told it was a duplicate');
+        self::assertSame(InboundStatus::Processed, $this->repo->findByDedupeKey('dedupe-test-processed')?->getStatus(), 'the row was overwritten to duplicate_ignored');
+        self::assertSame(1, $this->repo->findByDedupeKey('dedupe-test-processed')?->getDuplicateCount());
+    }
+
+    #[Test]
+    public function a_repeat_of_a_failed_delivery_is_handed_back_to_be_processed_again(): void
+    {
+        $first = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-failed'));
+        $first->markFailed('handler crashed');
+        $this->repo->save($first);
+
+        $retry = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-failed'));
+        $sameMoment = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-failed'));
+
+        self::assertSame(InboundStatus::Received, $retry->getStatus(), 'a provider retry of a failure was ignored as a duplicate');
+        self::assertSame(1, $retry->getDuplicateCount(), 'read back after the claim, so the saves that follow keep the counter');
+        self::assertSame(InboundStatus::DuplicateIgnored, $sameMoment->getStatus(), 'claimed once: a second retry does not process it again');
+        self::assertSame(1, $this->rowCount('dedupe-test-failed'));
+    }
+
+    /** The request that stored it died before processing: every retry was ignored as its duplicate. */
+    #[Test]
+    public function a_row_abandoned_before_processing_is_handed_to_the_next_retry(): void
+    {
+        $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-abandoned'));
+        $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-fresh'));
+        $this->orm->getAdapter()->execute(
+            "UPDATE webhook_inbox SET updated_at = '2001-01-01 00:00:00' WHERE dedupe_key = 'dedupe-test-abandoned'",
+        );
+
+        self::assertSame(InboundStatus::Received, $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-abandoned'))->getStatus());
+        self::assertSame(InboundStatus::DuplicateIgnored, $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-abandoned'))->getStatus(), 'claimed once');
+        self::assertSame(InboundStatus::DuplicateIgnored, $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-fresh'))->getStatus(), 'a request may still be on a fresh one');
+    }
+
+    /** Received without a processor, a delivery rests in verified: a later repeat is a duplicate, not new work. */
+    #[Test]
+    public function an_old_verified_row_is_a_duplicate_not_abandoned(): void
+    {
+        $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-resting'));
+        $this->orm->getAdapter()->execute(
+            "UPDATE webhook_inbox SET status = 'verified', updated_at = '2001-01-01 00:00:00' WHERE dedupe_key = 'dedupe-test-resting'",
+        );
+
+        self::assertSame(InboundStatus::DuplicateIgnored, $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-resting'))->getStatus());
+    }
+
+    #[Test]
+    public function two_replays_at_once_cannot_both_take_a_delivery(): void
+    {
+        $row = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-replay'));
+        $this->orm->getAdapter()->execute("UPDATE webhook_inbox SET signature_status = 'verified', status = 'failed' WHERE dedupe_key = 'dedupe-test-replay'");
+
+        self::assertTrue($this->repo->claimForReplay($row->getId(), false));
+        self::assertFalse($this->repo->claimForReplay($row->getId(), false), 'processing now');
+        self::assertFalse($this->repo->claimForReplay($row->getId(), true), 'and not stuck: it started a moment ago');
+    }
+
+    /**
+     * A processed row keeps the processing_started_at of its first run, hours
+     * old: a second forced replay, before the first one's own save, read the
+     * row it had just lost as stuck and ran the processor again.
+     */
+    #[Test]
+    public function a_forced_replay_of_a_row_processed_long_ago_is_taken_once(): void
+    {
+        $row = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-forced'));
+        $this->orm->getAdapter()->execute("UPDATE webhook_inbox SET signature_status = 'verified', status = 'processed', processing_started_at = '2001-01-01 00:00:00' WHERE dedupe_key = 'dedupe-test-forced'");
+
+        self::assertTrue($this->repo->claimForReplay($row->getId(), true));
+        // The second replay a second later. In the same second its UPDATE
+        // would change nothing, and MySQL reports no row: refused by luck.
+        $this->orm->getAdapter()->execute("UPDATE webhook_inbox SET updated_at = '2001-01-01 00:00:01' WHERE dedupe_key = 'dedupe-test-forced'");
+        self::assertFalse($this->repo->claimForReplay($row->getId(), true), 'processing since a moment ago, not stuck');
+    }
+
+    /** A replay taking a row a provider retry was moving on ran the processor twice. */
+    #[Test]
+    public function a_replay_takes_a_waiting_row_only_once_it_has_been_still(): void
+    {
+        $row = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-waiting'));
+        $this->orm->getAdapter()->execute("UPDATE webhook_inbox SET signature_status = 'verified', status = 'verified' WHERE dedupe_key = 'dedupe-test-waiting'");
+
+        self::assertFalse($this->repo->claimForReplay($row->getId(), false));
+
+        $this->orm->getAdapter()->execute("UPDATE webhook_inbox SET updated_at = '2001-01-01 00:00:00' WHERE dedupe_key = 'dedupe-test-waiting'");
+        self::assertTrue($this->repo->claimForReplay($row->getId(), false));
+    }
+
+    #[Test]
     public function different_dedupe_keys_create_independent_rows(): void
     {
         $a = $this->repo->insertOrMatchDedupe($this->makeDelivery('dedupe-test-alpha'));

@@ -20,7 +20,17 @@ final class InboundDedupeKeyFactoryTest extends TestCase
     {
         $key = $this->factory->generate('stripe', 'stripe-payments', 'evt_123', '{}');
 
-        self::assertSame('provider:stripe:endpoint:stripe-payments:event:evt_123', $key);
+        self::assertSame('provider:stripe:endpoint:stripe-payments:event:' . hash('sha256', "evt_123\0" . hash('sha256', '{}')), $key);
+    }
+
+    /** The id is not signed: another body under the same id is another delivery, the same body the same one. */
+    public function testTheEventIdIsBoundToTheBody(): void
+    {
+        $genuine = $this->factory->generate('stripe', 'p', 'evt_9', '{"refund":42}');
+
+        self::assertSame($genuine, $this->factory->generate('stripe', 'p', 'evt_9', '{"refund":42}'));
+        self::assertNotSame($genuine, $this->factory->generate('stripe', 'p', 'evt_9', '{"captured":1}'));
+        self::assertLessThanOrEqual(255, strlen($this->factory->generate('stripe', 'p', str_repeat('x', 1000), '{}')));
     }
 
     public function testGeneratesKeyWithBodyHashWhenNoEventId(): void
@@ -47,7 +57,7 @@ final class InboundDedupeKeyFactoryTest extends TestCase
     {
         $key = $this->factory->generate('github', 'gh-hooks', 'delivery_abc', '{}', 'tenant-42');
 
-        self::assertSame('tenant:tenant-42:provider:github:endpoint:gh-hooks:event:delivery_abc', $key);
+        self::assertSame('tenant:tenant-42:provider:github:endpoint:gh-hooks:event:' . hash('sha256', "delivery_abc\0" . hash('sha256', '{}')), $key);
     }
 
     public function testTenantPrefixWithBodyHash(): void

@@ -18,6 +18,9 @@ use Semitexa\Webhooks\Domain\Model\InboundDelivery;
 #[SatisfiesRepositoryContract(of: InboundDeliveryRepositoryInterface::class)]
 final class InboundDeliveryRepository implements InboundDeliveryRepositoryInterface
 {
+    /** How long a row may stay received or verified before a retry takes it as abandoned. */
+    private const int ABANDONED_AFTER_SECONDS = 900;
+
     #[InjectAsReadonly]
     protected OrmManager $orm;
 
@@ -84,8 +87,57 @@ final class InboundDeliveryRepository implements InboundDeliveryRepositoryInterf
             ));
         }
 
+        // A provider sends a delivery again because it failed here: that one
+        // is processed again. Any other repeat is counted and reported to the
+        // caller as a duplicate; the row keeps the status it earned.
+        // Only the counters are written: writing the whole row with status
+        // duplicate_ignored overwrote what the first arrival had earned. UTC,
+        // as the ORM writes and reads its datetime columns.
+        $key = $delivery->getDedupeKey();
+        $this->adapter()->execute(
+            'UPDATE webhook_inbox SET duplicate_count = duplicate_count + 1, last_received_at = :now WHERE dedupe_key = :dedupe_key',
+            ['now' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s'), 'dedupe_key' => $key],
+        );
+
+        // A row still `received` long after it arrived: the request that
+        // stored it died before it even recorded the signature (a 500 after
+        // the insert). Matched as a duplicate, every retry was ignored and the
+        // event never ran. Marked failed, it is claimed below like any.
+        // Not `verified`: that is where a delivery received without a
+        // processor rests for good, and taking it as abandoned would hand the
+        // caller its event a second time.
+        if ($existing->getStatus() === InboundStatus::Received) {
+            $abandoned = $this->adapter()->execute(
+                "UPDATE webhook_inbox SET status = 'failed', last_error = 'Abandoned before processing.'
+                 WHERE dedupe_key = :dedupe_key AND status = 'received' AND COALESCE(updated_at, first_received_at) < :stale",
+                [
+                    'dedupe_key' => $key,
+                    'stale' => (new \DateTimeImmutable('-' . self::ABANDONED_AFTER_SECONDS . ' seconds', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s'),
+                ],
+            )->rowCount === 1;
+            if ($abandoned) {
+                $existing = $this->findByDedupeKey($key) ?? $existing;
+            }
+        }
+
+        if ($existing->getStatus() === InboundStatus::Failed) {
+            // A provider's retry of a failure: claimed by one caller only, so
+            // two retries arriving together do not both process it. Read back
+            // after the claim, so the saves that follow keep the counters.
+            $claimed = $this->adapter()->execute(
+                // updated_at moves: a claimed row is not abandoned the moment it is claimed.
+                "UPDATE webhook_inbox SET status = 'received', updated_at = :now WHERE dedupe_key = :dedupe_key AND status = 'failed'",
+                ['dedupe_key' => $key, 'now' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s')],
+            )->rowCount === 1;
+            $fresh = $claimed ? $this->findByDedupeKey($key) : null;
+            if ($fresh !== null) {
+                return $fresh;
+            }
+        }
+
+        // In memory only, to tell the caller; counts as the row now does.
         $existing->markDuplicateIgnored();
-        $this->repository()->update($existing);
+
         return $existing;
     }
 
@@ -202,8 +254,52 @@ final class InboundDeliveryRepository implements InboundDeliveryRepositoryInterf
         return $this->orm;
     }
 
+    /**
+     * The adapter of the caller's transaction when there is one: the
+     * counter and claim UPDATEs went around it, so a claim made inside a
+     * transaction that rolled back stayed committed.
+     */
     private function adapter(): \Semitexa\Orm\Adapter\DatabaseAdapterInterface
     {
-        return $this->orm()->getAdapter();
+        return $this->orm()->getQueryAdapter();
+    }
+
+    /** The binary(16) primary key, from the id as the domain spells it. */
+    private function replayId(string $id): string
+    {
+        return strlen($id) === 36 && str_contains($id, '-') ? \Semitexa\Orm\Application\Service\Uuid7::toBytes($id) : $id;
+    }
+
+    public function claimForReplay(string $id, bool $allowProcessed): bool
+    {
+        $stale = (new \DateTimeImmutable('-' . self::ABANDONED_AFTER_SECONDS . ' seconds', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s');
+
+        // Not a row a request may be working on right now: received and
+        // verified move on with plain saves, so a replay taking one of those
+        // while a provider retry runs it would run the processor twice. Such
+        // rows, and one stuck in processing (a worker that died mid-run, with
+        // force), only once they have been still for ABANDONED_AFTER_SECONDS.
+        // processing_started_at restarts with the claim: a processed row kept
+        // the one of its first run, so a second forced replay read the row it
+        // had just lost as stuck and ran the processor again.
+        return $this->adapter()->execute(
+            "UPDATE webhook_inbox SET status = 'processing', updated_at = :now, processing_started_at = :now_started
+             WHERE id = :id AND signature_status = 'verified'
+               AND (
+                    status = 'failed'
+                 OR (status = 'processed' AND :allow_processed = 1)
+                 OR (status IN ('received', 'verified') AND COALESCE(updated_at, first_received_at) < :stale_waiting)
+                 OR (status = 'processing' AND :allow_stuck = 1 AND COALESCE(processing_started_at, updated_at, first_received_at) < :stale_processing)
+               )",
+            [
+                'id' => $this->replayId($id),
+                'allow_processed' => $allowProcessed ? 1 : 0,
+                'allow_stuck' => $allowProcessed ? 1 : 0,
+                'stale_waiting' => $stale,
+                'stale_processing' => $stale,
+                'now' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s'),
+                'now_started' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s'),
+            ],
+        )->rowCount === 1;
     }
 }

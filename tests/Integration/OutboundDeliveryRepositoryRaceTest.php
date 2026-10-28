@@ -224,6 +224,76 @@ SQL);
         self::assertSame('worker-B', $second->getLeaseOwner());
     }
 
+    /**
+     * The database's clock judges a lease, not the worker's: a worker whose
+     * clock ran ahead took over a live lease and sent the delivery a second
+     * time. A zone fourteen hours ahead stands in for that clock.
+     */
+    #[Test]
+    public function a_worker_whose_clock_runs_ahead_cannot_take_a_live_lease(): void
+    {
+        $this->makeDelivery('idem-clock-skew');
+        self::assertNotNull($this->repo->claimAndLease('worker-A', new \DateTimeImmutable('+60 seconds')));
+
+        $zone = date_default_timezone_get();
+        date_default_timezone_set('Pacific/Kiritimati');
+        try {
+            $stolen = $this->repo->claimAndLease('worker-B', new \DateTimeImmutable('+60 seconds'));
+        } finally {
+            date_default_timezone_set($zone);
+        }
+
+        self::assertNull($stolen, 'worker-A holds it for a minute by the database clock');
+    }
+
+    /** A send that killed its worker every time was reclaimed for good, whatever attempt_count said. */
+    #[Test]
+    public function a_delivery_whose_worker_died_every_attempt_fails_when_attempts_run_out(): void
+    {
+        $this->makeDelivery('idem-crash-loop', maxAttempts: 2);
+
+        $this->repo->claimAndLease('worker-A', new \DateTimeImmutable('-1 second'));
+        $this->repo->claimAndLease('worker-B', new \DateTimeImmutable('-1 second'));
+
+        self::assertNull($this->repo->claimAndLease('worker-C', new \DateTimeImmutable('+60 seconds')));
+        self::assertSame('failed', $this->dbRow('idem-crash-loop')['status']);
+    }
+
+    /**
+     * A sweep that lost a lock wait leaves an exhausted row delivering. As the
+     * oldest due row it took the poll's only candidate slot, the claim refused
+     * it, and the poll came back empty while a due delivery waited behind it.
+     */
+    #[Test]
+    public function an_exhausted_row_the_sweep_left_does_not_take_the_polls_slot(): void
+    {
+        $this->makeDelivery('idem-exhausted', nextAttemptAt: new \DateTimeImmutable('-1 hour'), maxAttempts: 1);
+        $this->repo->claimAndLease('worker-A', new \DateTimeImmutable('-1 second'));
+        $this->makeDelivery('idem-due');
+        self::assertSame(['delivering', '1'], [$this->dbRow('idem-exhausted')['status'], (string) $this->dbRow('idem-exhausted')['attempt_count']], 'out of attempts, lease run out, not swept yet');
+
+        $now = (new \ReflectionMethod(OutboundDeliveryRepository::class, 'sqlNow'))->invoke($this->repo);
+        $candidates = (new \ReflectionMethod(OutboundDeliveryRepository::class, 'selectClaimCandidateIds'))->invoke($this->repo, $now, 1);
+        $due = $this->orm->getAdapter()->execute("SELECT id FROM webhook_outbox WHERE idempotency_key = 'idem-due'")->fetchColumn();
+
+        self::assertSame([(string) $due], $candidates);
+    }
+
+    /** Checked, then saved, the reset could land on a row a worker had just claimed. */
+    #[Test]
+    public function a_reset_never_lands_on_a_live_lease_or_a_delivered_row_without_force(): void
+    {
+        $leased = $this->makeDelivery('idem-reset-leased');
+        $this->repo->claimAndLease('worker-A', new \DateTimeImmutable('+60 seconds'));
+        $delivered = $this->makeDelivery('idem-reset-delivered', OutboundStatus::Delivered);
+
+        self::assertFalse($this->repo->resetToPendingUnlessLeased($leased->getId(), true));
+        self::assertSame('delivering', $this->dbRow('idem-reset-leased')['status']);
+        self::assertFalse($this->repo->resetToPendingUnlessLeased($delivered->getId(), false));
+        self::assertTrue($this->repo->resetToPendingUnlessLeased($delivered->getId(), true));
+        self::assertSame('pending', $this->dbRow('idem-reset-delivered')['status']);
+    }
+
     #[Test]
     public function attempt_count_continues_to_increment_across_lease_reclaims(): void
     {

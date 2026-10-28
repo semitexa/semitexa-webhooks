@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Db\MySQL\Repository;
 
+use Semitexa\Orm\Exception\LockWaitTimeoutException;
+use Semitexa\Orm\Exception\DeadlockException;
+use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesRepositoryContract;
 use Semitexa\Orm\OrmManager;
@@ -99,7 +102,38 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
 
     public function claimAndLease(string $workerId, \DateTimeImmutable $leaseExpiresAt, int $limit = 1): ?OutboundDelivery
     {
-        $now = new \DateTimeImmutable();
+        // The database's clock, not this worker's: a worker whose clock ran
+        // ahead took over leases others still held, and sent twice. The lease
+        // keeps the length the caller asked for.
+        $now = $this->sqlNow();
+        $leaseUntil = $this->sqlNow((int) round((float) $leaseExpiresAt->format('U.u') - microtime(true)));
+
+        // A send that killed its worker every time came back as an expired
+        // lease and was claimed again, whatever attempt_count said, for good.
+        // Out of attempts, it is failed instead.
+        // Best effort: a deadlock or lock wait here must not end the worker,
+        // the next poll sweeps again.
+        try {
+            $swept = $this->adapter()->execute(
+                "UPDATE webhook_outbox
+                 SET status = :failed, lease_owner = NULL, lease_expires_at = NULL,
+                     last_error = 'The worker stopped during every attempt: attempts exhausted.'
+                 WHERE status = :delivering AND lease_expires_at IS NOT NULL AND lease_expires_at < {$now}
+                   AND attempt_count >= max_attempts",
+                [
+                    'failed' => OutboundStatus::Failed->value,
+                    'delivering' => OutboundStatus::Delivering->value,
+                ],
+            )->rowCount;
+            if ($swept > 0) {
+                StaticLoggerBridge::warning('webhooks', 'Outbound deliveries failed: their worker stopped during every attempt.', ['count' => $swept]);
+            }
+        } catch (DeadlockException|LockWaitTimeoutException $e) {
+            // Exhausted deliveries stay delivering until a later sweep wins;
+            // the candidate select below passes them over meanwhile.
+            StaticLoggerBridge::warning('webhooks', 'Outbound exhausted-delivery sweep skipped: those deliveries stay delivering until a later poll sweeps them.', ['error' => $e->getMessage()]);
+        }
+
         // The candidate select only narrows the row set for the conditional
         // UPDATE — it never decides ownership on its own. Ownership is
         // decided by the UPDATE's WHERE clause, which re-checks the
@@ -118,31 +152,27 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
             $result = $this->adapter()->execute(
                 "UPDATE webhook_outbox
                  SET lease_owner = :worker_id,
-                     lease_expires_at = :lease_expires_at,
+                     lease_expires_at = {$leaseUntil},
                      status = :status_set,
                      attempt_count = attempt_count + 1,
-                     last_attempt_at = :now_attempt
+                     last_attempt_at = {$now}
                  WHERE id = :id
                    AND (
                        (status IN (:pending, :retry_scheduled)
-                        AND next_attempt_at <= :now_due
-                        AND (lease_expires_at IS NULL OR lease_expires_at < :now_lease_pending))
+                        AND next_attempt_at <= {$now}
+                        AND (lease_expires_at IS NULL OR lease_expires_at < {$now}))
                      OR
                        (status = :delivering_check
                         AND lease_expires_at IS NOT NULL
-                        AND lease_expires_at < :now_lease_delivering)
+                        AND lease_expires_at < {$now}
+                        AND attempt_count < max_attempts)
                    )",
                 [
                     'worker_id' => $workerId,
-                    'lease_expires_at' => $leaseExpiresAt->format('Y-m-d H:i:s.u'),
                     'status_set' => OutboundStatus::Delivering->value,
                     'pending' => OutboundStatus::Pending->value,
                     'retry_scheduled' => OutboundStatus::RetryScheduled->value,
                     'delivering_check' => OutboundStatus::Delivering->value,
-                    'now_due' => $now->format('Y-m-d H:i:s.u'),
-                    'now_lease_pending' => $now->format('Y-m-d H:i:s.u'),
-                    'now_lease_delivering' => $now->format('Y-m-d H:i:s.u'),
-                    'now_attempt' => $now->format('Y-m-d H:i:s.u'),
                     'id' => $candidateId,
                 ],
             );
@@ -167,6 +197,34 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
         }
 
         return null;
+    }
+
+    public function resetToPendingUnlessLeased(string $deliveryId, bool $allowDelivered): bool
+    {
+        $now = $this->sqlNow();
+
+        // One statement: checked first and saved after, the reset could land
+        // on a row a worker had just claimed, strip its lease, and the next
+        // worker sent it a second time.
+        return $this->adapter()->execute(
+            "UPDATE webhook_outbox
+             SET status = :pending, next_attempt_at = {$now}, attempt_count = 0,
+                 lease_owner = NULL, lease_expires_at = NULL, last_error = NULL
+             WHERE id = :id
+               AND NOT (status = :delivering AND lease_expires_at IS NOT NULL AND lease_expires_at > {$now})
+               AND (status <> :delivered OR :allow_delivered = 1)",
+            [
+                'pending' => OutboundStatus::Pending->value,
+                'delivering' => OutboundStatus::Delivering->value,
+                'delivered' => OutboundStatus::Delivered->value,
+                'allow_delivered' => $allowDelivered ? 1 : 0,
+                'id' => $this->normalizeId($deliveryId),
+            ],
+        )->rowCount > 0
+            // MySQL counts changed rows: a row already pending, due and with
+            // no lease (a second replay within the same second) changed
+            // nothing, and is reset all the same.
+            || (($row = $this->findById($deliveryId)) !== null && $row->getStatus() === OutboundStatus::Pending && $row->getLeaseOwner() === null);
     }
 
     public function markDeliveredIfOwned(
@@ -291,13 +349,12 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
         $sql = 'DELETE FROM webhook_outbox
                 WHERE created_at < :cutoff
                   AND status IN (:delivered, :failed, :cancelled)
-                  AND (lease_expires_at IS NULL OR lease_expires_at <= :now_lease)';
+                  AND (lease_expires_at IS NULL OR lease_expires_at <= ' . $this->sqlNow() . ')';
         $params = [
             'cutoff'    => $cutoff->format('Y-m-d H:i:s.u'),
             'delivered' => OutboundStatus::Delivered->value,
             'failed'    => OutboundStatus::Failed->value,
             'cancelled' => OutboundStatus::Cancelled->value,
-            'now_lease' => (new \DateTimeImmutable())->format('Y-m-d H:i:s.u'),
         ];
 
         if ($tenantId !== null) {
@@ -317,13 +374,12 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
         $sql = 'SELECT COUNT(*) AS c FROM webhook_outbox
              WHERE created_at < :cutoff
                AND status IN (:delivered, :failed, :cancelled)
-               AND (lease_expires_at IS NULL OR lease_expires_at <= :now_lease)';
+               AND (lease_expires_at IS NULL OR lease_expires_at <= ' . $this->sqlNow() . ')';
         $params = [
             'cutoff'    => $cutoff->format('Y-m-d H:i:s.u'),
             'delivered' => OutboundStatus::Delivered->value,
             'failed'    => OutboundStatus::Failed->value,
             'cancelled' => OutboundStatus::Cancelled->value,
-            'now_lease' => (new \DateTimeImmutable())->format('Y-m-d H:i:s.u'),
         ];
 
         if ($tenantId !== null) {
@@ -353,15 +409,32 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
         return $this->orm;
     }
 
+    /**
+     * "Now" (plus $seconds), as SQL the database evaluates. UTC both ways:
+     * MySQL sessions are pinned to +00:00 (MySqlSessionTimeZone) and SQLite's
+     * 'now' is UTC; the SQLite form pads to the six digits PHP writes.
+     */
+    private function sqlNow(int $seconds = 0): string
+    {
+        if ($this->orm()->getDriver() === 'sqlite') {
+            return $seconds === 0
+                ? "strftime('%Y-%m-%d %H:%M:%f000', 'now')"
+                : sprintf("strftime('%%Y-%%m-%%d %%H:%%M:%%f000', 'now', '%+d seconds')", $seconds);
+        }
+
+        return $seconds === 0 ? 'NOW(6)' : sprintf('(NOW(6) + INTERVAL %d SECOND)', $seconds);
+    }
+
     private function adapter(): \Semitexa\Orm\Adapter\DatabaseAdapterInterface
     {
         return $this->orm()->getAdapter();
     }
 
     /**
+     * @param string $now "now" as SQL ({@see sqlNow()})
      * @return list<string>
      */
-    private function selectClaimCandidateIds(\DateTimeImmutable $now, int $limit): array
+    private function selectClaimCandidateIds(string $now, int $limit): array
     {
         // Two candidate sources:
         //  1) Pending or RetryScheduled rows whose nextAttemptAt has arrived
@@ -370,28 +443,28 @@ final class OutboundDeliveryRepository implements OutboundDeliveryRepositoryInte
         //     either dead, hung, or partitioned. Reclaiming such a row is
         //     part of the retry contract; the conditional UPDATE in
         //     claimAndLease() only commits if the row is still in either
-        //     of these states by the time the UPDATE executes.
+        //     of these states by the time the UPDATE executes. Not one out
+        //     of attempts: the UPDATE refuses it, and as the oldest due row
+        //     it took the poll's only slot while due rows behind it waited.
         $rows = $this->adapter()->execute(
-            'SELECT id
+            "SELECT id
              FROM webhook_outbox
              WHERE (
                  (status IN (:pending, :retry_scheduled)
-                  AND next_attempt_at <= :now_due
-                  AND (lease_expires_at IS NULL OR lease_expires_at < :now_lease_pending))
+                  AND next_attempt_at <= {$now}
+                  AND (lease_expires_at IS NULL OR lease_expires_at < {$now}))
                OR
                  (status = :delivering
                   AND lease_expires_at IS NOT NULL
-                  AND lease_expires_at < :now_lease_delivering)
+                  AND lease_expires_at < {$now}
+                  AND attempt_count < max_attempts)
              )
              ORDER BY next_attempt_at ASC
-             LIMIT :limit',
+             LIMIT :limit",
             [
                 'pending' => OutboundStatus::Pending->value,
                 'retry_scheduled' => OutboundStatus::RetryScheduled->value,
                 'delivering' => OutboundStatus::Delivering->value,
-                'now_due' => $now->format('Y-m-d H:i:s.u'),
-                'now_lease_pending' => $now->format('Y-m-d H:i:s.u'),
-                'now_lease_delivering' => $now->format('Y-m-d H:i:s.u'),
                 'limit' => max(1, $limit),
             ],
         )->fetchAll();

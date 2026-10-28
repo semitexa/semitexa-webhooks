@@ -10,10 +10,13 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\Webhooks\Domain\Contract\OutboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookAttemptRepositoryInterface;
+use Semitexa\Webhooks\Domain\Enum\OutboundStatus;
 use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
+use Semitexa\Webhooks\Domain\Model\OutboundDelivery;
 use Semitexa\Webhooks\Domain\Model\WebhookAttempt;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -41,17 +44,21 @@ final class WebhookReplayOutboundCommand extends Command
                 name: 'id',
                 mode: InputArgument::REQUIRED,
                 description: 'UUID of the outbound delivery to replay',
-            );
+            )
+            ->addOption('force', null, InputOption::VALUE_NONE, 'Also resend a delivery that was already delivered');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
+        /** @var string $id a required argument */
         $id = $input->getArgument('id');
 
         try {
             $container = $this->container;
+            /** @var OutboundDeliveryRepositoryInterface $outboxRepo */
             $outboxRepo = $container->get(OutboundDeliveryRepositoryInterface::class);
+            /** @var WebhookAttemptRepositoryInterface $attemptRepo */
             $attemptRepo = $container->get(WebhookAttemptRepositoryInterface::class);
 
             $delivery = $outboxRepo->findById($id);
@@ -60,9 +67,24 @@ final class WebhookReplayOutboundCommand extends Command
                 return Command::FAILURE;
             }
 
+            // Delivered means the receiver answered 2xx: sending it again is a
+            // second event on their side, so it takes --force.
+            if ($delivery->getStatus() === OutboundStatus::Delivered && !$input->getOption('force')) {
+                $io->error("Outbound delivery {$id} was already delivered. Pass --force to send it again.");
+                return Command::FAILURE;
+            }
+
             $statusBefore = $delivery->getStatus()->value;
+            // The reset decides, by the database's clock: a worker holding a
+            // live lease is sending it right now, and resetting it stripped
+            // the lease so the next worker sent it a second time. A lease
+            // judged here by PHP's clock refused a reset the database would
+            // have accepted. The row is read again only to say why.
+            if (!$outboxRepo->resetToPendingUnlessLeased($delivery->getId(), (bool) $input->getOption('force'))) {
+                $io->error($this->refusal($id, $outboxRepo->findById($id)));
+                return Command::FAILURE;
+            }
             $delivery->resetToPending();
-            $outboxRepo->save($delivery);
 
             $attemptRepo->save(new WebhookAttempt(
                 id: Uuid7::generate(),
@@ -86,5 +108,19 @@ final class WebhookReplayOutboundCommand extends Command
         }
 
         return Command::SUCCESS;
+    }
+
+    private function refusal(string $id, ?OutboundDelivery $current): string
+    {
+        $lease = $current?->getLeaseExpiresAt();
+
+        return match (true) {
+            $current === null => "Outbound delivery not found: {$id}",
+            $current->getStatus() === OutboundStatus::Delivering && $lease !== null
+                => "Outbound delivery {$id} is being sent by {$current->getLeaseOwner()} until {$lease->format('H:i:s')} UTC; try again after that.",
+            $current->getStatus() === OutboundStatus::Delivered
+                => "Outbound delivery {$id} was already delivered. Pass --force to send it again.",
+            default => "Outbound delivery {$id} could not be reset; try again.",
+        };
     }
 }
