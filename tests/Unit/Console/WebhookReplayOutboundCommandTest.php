@@ -24,12 +24,32 @@ final class WebhookReplayOutboundCommandTest extends TestCase
     #[Test]
     public function a_delivery_a_worker_is_sending_is_left_alone(): void
     {
-        $delivery = $this->delivery(OutboundStatus::Delivering, new \DateTimeImmutable('+2 minutes'));
-        [$tester, $saved] = $this->replay($delivery);
+        $lease = new \DateTimeImmutable('+2 minutes');
+        [$tester, $saved] = $this->replay($this->delivery(OutboundStatus::Delivering, $lease));
 
         self::assertSame(Command::FAILURE, $tester->getStatusCode());
-        self::assertStringContainsString('being sent', $tester->getDisplay());
+        self::assertSame(1, $saved->calls, 'the reset decides');
         self::assertSame(0, $saved->count);
+        self::assertStringContainsString(
+            "Outbound delivery d-1 is being sent by worker-7 until {$lease->format('H:i:s')} UTC; try again after that.",
+            self::oneLine($tester),
+        );
+    }
+
+    /**
+     * The command compared the lease with PHP's clock before the reset, which
+     * compares it with the database's: a lease already over by the database
+     * clock, but not yet by a host clock behind it, was refused for nothing.
+     */
+    #[Test]
+    public function a_lease_over_by_the_database_clock_is_reset_whatever_the_host_clock_says(): void
+    {
+        $delivery = $this->delivery(OutboundStatus::Delivering, new \DateTimeImmutable('+30 seconds'));
+        [$tester, $saved] = $this->replay($delivery, databaseNow: new \DateTimeImmutable('+1 minute'));
+
+        self::assertSame(Command::SUCCESS, $tester->getStatusCode(), self::oneLine($tester));
+        self::assertSame(1, $saved->count);
+        self::assertSame(OutboundStatus::Pending, $delivery->getStatus());
     }
 
     #[Test]
@@ -58,15 +78,25 @@ final class WebhookReplayOutboundCommandTest extends TestCase
     }
 
     /**
+     * The stubbed reset refuses what the SQL one refuses, judged by
+     * $databaseNow: a live lease, and a delivered row without --force.
+     *
      * @param array<string, mixed> $options
-     * @return array{CommandTester, object{count: int, allowDelivered: ?bool}}
+     * @return array{CommandTester, object{calls: int, count: int, allowDelivered: ?bool}}
      */
-    private function replay(OutboundDelivery $delivery, array $options = []): array
+    private function replay(OutboundDelivery $delivery, array $options = [], ?\DateTimeImmutable $databaseNow = null): array
     {
-        $saved = new class { public int $count = 0; public ?bool $allowDelivered = null; };
+        $databaseNow ??= new \DateTimeImmutable();
+        $saved = new class { public int $calls = 0; public int $count = 0; public ?bool $allowDelivered = null; };
         $outbox = $this->createStub(OutboundDeliveryRepositoryInterface::class);
         $outbox->method('findById')->willReturn($delivery);
-        $outbox->method('resetToPendingUnlessLeased')->willReturnCallback(static function (string $id, bool $allowDelivered) use ($saved): bool {
+        $outbox->method('resetToPendingUnlessLeased')->willReturnCallback(static function (string $id, bool $allowDelivered) use ($saved, $delivery, $databaseNow): bool {
+            $saved->calls++;
+            $lease = $delivery->getLeaseExpiresAt();
+            if (($delivery->getStatus() === OutboundStatus::Delivering && $lease !== null && $lease > $databaseNow)
+                || ($delivery->getStatus() === OutboundStatus::Delivered && !$allowDelivered)) {
+                return false;
+            }
             $saved->count++;
             $saved->allowDelivered = $allowDelivered;
 
@@ -89,6 +119,12 @@ final class WebhookReplayOutboundCommandTest extends TestCase
         $tester->execute(['id' => 'd-1'] + $options);
 
         return [$tester, $saved];
+    }
+
+    /** The display with SymfonyStyle's line wrapping undone. */
+    private static function oneLine(CommandTester $tester): string
+    {
+        return (string) preg_replace('/\s+/', ' ', $tester->getDisplay());
     }
 
     private function delivery(OutboundStatus $status, ?\DateTimeImmutable $leaseExpiresAt = null): OutboundDelivery
