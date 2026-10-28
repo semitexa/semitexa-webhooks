@@ -85,6 +85,28 @@ final class WebhookTransportHttpClientTest extends TestCase
         self::assertSame('order.created', $http->recorded()[0]->header('X-Webhook-Event-Type'));
     }
 
+    /**
+     * The receiver dedupes on the event id: a configured header of that name,
+     * in any case, made two distinct deliveries one id and the second was
+     * dropped as a copy. The outbox id is reserved.
+     */
+    #[Test]
+    public function a_configured_event_id_header_in_any_case_does_not_replace_the_outbox_id(): void
+    {
+        $http = (new FakeHttpClient())->queue(HttpResponse::make(200));
+
+        $this->transport($http, defaultHeaders: ['X-Webhook-Event-Id' => 'from-endpoint'])
+            ->send($this->delivery((string) json_encode(['x-webhook-event-id' => 'from-caller'])));
+
+        $eventIds = [];
+        foreach ($http->recorded()[0]->headers as $name => $values) {
+            if (strcasecmp($name, 'X-Webhook-Event-Id') === 0) {
+                $eventIds[$name] = $values;
+            }
+        }
+        self::assertSame(['X-Webhook-Event-Id' => ['d-1']], $eventIds);
+    }
+
     #[Test]
     public function a_header_with_a_line_break_is_a_permanent_failure_and_nothing_is_sent(): void
     {

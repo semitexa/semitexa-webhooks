@@ -71,12 +71,8 @@ final class CurlWebhookTransport implements WebhookTransportInterface
 
         // Build headers: the endpoint's defaults, the delivery's own, then the
         // signature, each later one replacing an earlier of the same name.
-        // The outbox id, the same on every retry: each retry is signed with a
-        // new timestamp, so a receiver had nothing stable to recognise a
-        // second copy by. The inbound side dedupes on it (bound to the body).
         $headers = [
             'Content-Type' => 'application/json',
-            'X-Webhook-Event-Id' => $delivery->getId(),
             'X-Webhook-Event-Type' => $delivery->getEventType(),
         ];
         foreach ($endpoint->getDefaultHeaders() ?? [] as $key => $value) {
@@ -90,6 +86,17 @@ final class CurlWebhookTransport implements WebhookTransportInterface
                 }
             }
         }
+        // The outbox id, the same on every retry: each retry is signed with a
+        // new timestamp, so a receiver had nothing stable to recognise a
+        // second copy by. The inbound side dedupes on it (bound to the body),
+        // so it is reserved: a configured header of that name, in any case,
+        // would give two distinct deliveries one id and drop the second.
+        foreach (array_keys($headers) as $key) {
+            if (strcasecmp((string) $key, 'X-Webhook-Event-Id') === 0) {
+                unset($headers[$key]);
+            }
+        }
+        $headers['X-Webhook-Event-Id'] = $delivery->getId();
         if ($endpoint->getSigningMode() !== null && ($endpoint->getSecretRef() ?? '') === '') {
             // Signing asked for, nothing to sign with: never sent unsigned.
             // Permanent: only a change to the endpoint row can fix it.
