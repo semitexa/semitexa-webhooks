@@ -33,12 +33,17 @@ use Semitexa\Core\Auth\AuthenticatableInterface;
  * AuthorizationListener composes the cache key as
  * `{tenantId}:service:{endpointKey}`, which is also the (serviceId, tenantId)
  * pair passed to ServiceCapabilityProviderInterface.
+ *
+ * @api
  */
 final readonly class WebhookPrincipal implements AuthenticatableInterface
 {
     public function __construct(
+        /** @api */
         public string $endpointKey,
+        /** @api */
         public ?string $eventId = null,
+        /** @api */
         public ?string $tenantId = null,
     ) {}
 
