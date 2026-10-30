@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Domain\Model;
 
+/** @api */
 final readonly class OutboundWebhookMessage
 {
     public function __construct(

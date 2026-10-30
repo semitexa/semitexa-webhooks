@@ -38,6 +38,8 @@ use Attribute;
  *                          payload class short name. Set this for
  *                          capability-bound routes so the service identity
  *                          is not coupled to the PHP class name.
+ *
+ * @api
  */
 #[Attribute(Attribute::TARGET_CLASS)]
 final class AsWebhookReceiver

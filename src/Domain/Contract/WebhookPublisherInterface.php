@@ -6,6 +6,7 @@ namespace Semitexa\Webhooks\Domain\Contract;
 
 use Semitexa\Webhooks\Domain\Model\OutboundWebhookMessage;
 
+/** @api */
 interface WebhookPublisherInterface
 {
     public function publish(OutboundWebhookMessage $message): void;
