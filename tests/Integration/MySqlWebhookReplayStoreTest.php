@@ -6,7 +6,7 @@ namespace Semitexa\Webhooks\Tests\Integration;
 
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use Semitexa\Core\Container\ContainerFactory;
+use Semitexa\Webhooks\Tests\Support\RequiresBackingServices;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Webhooks\Auth\MySqlWebhookReplayStore;
 
@@ -25,23 +25,14 @@ use Semitexa\Webhooks\Auth\MySqlWebhookReplayStore;
  */
 final class MySqlWebhookReplayStoreTest extends TestCase
 {
+    use RequiresBackingServices;
+
     private OrmManager $orm;
     private MySqlWebhookReplayStore $store;
 
     protected function setUp(): void
     {
-        $host = getenv('DB_HOST');
-        if ($host === false || $host === '') {
-            self::markTestSkipped('DB_HOST not configured — integration test requires real MySQL');
-        }
-
-        try {
-            $this->orm = ContainerFactory::get()->get(OrmManager::class);
-            // Probe the connection.
-            $this->orm->getAdapter()->execute('SELECT 1');
-        } catch (\Throwable $e) {
-            self::markTestSkipped('MySQL not reachable: ' . $e->getMessage());
-        }
+        $this->orm = self::mysqlOrm();
 
         $this->resetTable();
         $this->store = new MySqlWebhookReplayStore($this->orm);
