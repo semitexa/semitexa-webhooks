@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Semitexa\Webhooks\Tests\Support\RequiresBackingServices;
 use Semitexa\Core\Redis\RedisConnectionPool;
 use Semitexa\Webhooks\Auth\RedisWebhookReplayStore;
+use Semitexa\Core\Environment;
 
 /**
  * Cycle-16 integration test for the production Redis-backed replay store.
@@ -29,10 +30,10 @@ final class RedisWebhookReplayStoreTest extends TestCase
     {
         $host = self::redisHost();
         $this->pool = new RedisConnectionPool(2, [
-            'scheme' => getenv('REDIS_SCHEME') ?: 'tcp',
+            'scheme' => Environment::getEnvValue('REDIS_SCHEME', 'tcp') ?? 'tcp',
             'host'   => $host,
-            'port'   => (int) (getenv('REDIS_PORT') ?: '6379'),
-            'password' => (string) (getenv('REDIS_PASSWORD') ?: ''),
+            'port'   => (int) Environment::getEnvValue('REDIS_PORT', '6379'),
+            'password' => Environment::getEnvValue('REDIS_PASSWORD') ?? '',
         ]);
         self::redisAnswers($host, fn () => $this->pool->withConnection(static fn ($redis) => $redis->ping()));
         $this->keyPrefix = 'cycle16:test:' . bin2hex(random_bytes(8)) . ':';
@@ -125,10 +126,10 @@ final class RedisWebhookReplayStoreTest extends TestCase
         // Atomicity guarantee comes from the Redis server, not from sharing
         // a connection. Pin that contract.
         $secondPool = new RedisConnectionPool(2, [
-            'scheme' => getenv('REDIS_SCHEME') ?: 'tcp',
-            'host'   => getenv('REDIS_HOST'),
-            'port'   => (int) (getenv('REDIS_PORT') ?: '6379'),
-            'password' => (string) (getenv('REDIS_PASSWORD') ?: ''),
+            'scheme' => Environment::getEnvValue('REDIS_SCHEME', 'tcp') ?? 'tcp',
+            'host'   => Environment::getEnvValue('REDIS_HOST') ?? '',
+            'port'   => (int) Environment::getEnvValue('REDIS_PORT', '6379'),
+            'password' => Environment::getEnvValue('REDIS_PASSWORD') ?? '',
         ]);
         $a = new RedisWebhookReplayStore($this->pool);
         $b = new RedisWebhookReplayStore($secondPool);
