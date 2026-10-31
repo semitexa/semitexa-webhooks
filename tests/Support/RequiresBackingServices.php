@@ -5,13 +5,14 @@ declare(strict_types=1);
 namespace Semitexa\Webhooks\Tests\Support;
 
 use Semitexa\Core\Container\ContainerFactory;
+use Semitexa\Core\Environment;
 use Semitexa\Orm\OrmManager;
 
 /**
  * The real MySQL and Redis these integration tests are about.
  *
- * Not configured (DB_HOST or REDIS_HOST unset: the suite run outside the
- * stack) is a skip. Configured and not answering is a failure: each test used
+ * Not configured (DB_HOST or REDIS_HOST unset, read as the application reads
+ * it, process environment or .env: the suite run outside the stack) is a skip. Configured and not answering is a failure: each test used
  * to skip there too, so a database the stack could not reach left the suite
  * green over everything these tests exist to prove.
  */
@@ -19,8 +20,8 @@ trait RequiresBackingServices
 {
     private static function mysqlOrm(): OrmManager
     {
-        $host = getenv('DB_HOST');
-        if ($host === false || $host === '') {
+        $host = Environment::getEnvValue('DB_HOST');
+        if ($host === null || $host === '') {
             self::markTestSkipped('DB_HOST not configured — integration test requires real MySQL');
         }
 
@@ -36,8 +37,8 @@ trait RequiresBackingServices
 
     private static function redisHost(): string
     {
-        $host = getenv('REDIS_HOST');
-        if ($host === false || $host === '') {
+        $host = Environment::getEnvValue('REDIS_HOST');
+        if ($host === null || $host === '') {
             self::markTestSkipped('REDIS_HOST not configured — integration test requires real Redis');
         }
 
