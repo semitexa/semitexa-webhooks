@@ -6,6 +6,7 @@ namespace Semitexa\Webhooks\Tests\Integration;
 
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Semitexa\Webhooks\Tests\Support\RequiresBackingServices;
 use Semitexa\Core\Redis\RedisConnectionPool;
 use Semitexa\Webhooks\Auth\RedisWebhookReplayStore;
 
@@ -19,27 +20,21 @@ use Semitexa\Webhooks\Auth\RedisWebhookReplayStore;
  */
 final class RedisWebhookReplayStoreTest extends TestCase
 {
+    use RequiresBackingServices;
+
     private RedisConnectionPool $pool;
     private string $keyPrefix;
 
     protected function setUp(): void
     {
-        $host = getenv('REDIS_HOST');
-        if ($host === false || $host === '') {
-            self::markTestSkipped('REDIS_HOST not configured — integration test requires real Redis');
-        }
+        $host = self::redisHost();
         $this->pool = new RedisConnectionPool(2, [
             'scheme' => getenv('REDIS_SCHEME') ?: 'tcp',
             'host'   => $host,
             'port'   => (int) (getenv('REDIS_PORT') ?: '6379'),
             'password' => (string) (getenv('REDIS_PASSWORD') ?: ''),
         ]);
-        // Probe Redis is actually reachable. If not, mark skipped instead of failing.
-        try {
-            $this->pool->withConnection(static fn ($redis) => $redis->ping());
-        } catch (\Throwable $e) {
-            self::markTestSkipped('Redis not reachable: ' . $e->getMessage());
-        }
+        self::redisAnswers($host, fn () => $this->pool->withConnection(static fn ($redis) => $redis->ping()));
         $this->keyPrefix = 'cycle16:test:' . bin2hex(random_bytes(8)) . ':';
     }
 

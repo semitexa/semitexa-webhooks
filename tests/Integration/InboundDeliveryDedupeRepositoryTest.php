@@ -6,6 +6,7 @@ namespace Semitexa\Webhooks\Tests\Integration;
 
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Semitexa\Webhooks\Tests\Support\RequiresBackingServices;
 use Semitexa\Core\Container\ContainerFactory;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Webhooks\Application\Db\MySQL\Repository\InboundDeliveryRepository;
@@ -29,23 +30,15 @@ use Semitexa\Webhooks\Domain\Enum\SignatureStatus;
  */
 final class InboundDeliveryDedupeRepositoryTest extends TestCase
 {
+    use RequiresBackingServices;
+
     private OrmManager $orm;
     private InboundDeliveryRepository $repo;
 
     protected function setUp(): void
     {
-        $host = getenv('DB_HOST');
-        if ($host === false || $host === '') {
-            self::markTestSkipped('DB_HOST not configured — integration test requires real MySQL');
-        }
-
-        try {
-            $container = ContainerFactory::get();
-            $this->orm = $container->get(OrmManager::class);
-            $this->orm->getAdapter()->execute('SELECT 1');
-        } catch (\Throwable $e) {
-            self::markTestSkipped('MySQL not reachable: ' . $e->getMessage());
-        }
+        $this->orm = self::mysqlOrm();
+        $container = ContainerFactory::get();
 
         $this->resetTable();
         $this->repo = $container->get(InboundDeliveryRepository::class);

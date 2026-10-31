@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Semitexa\Webhooks\Tests\Support\RequiresBackingServices;
 use ReflectionProperty;
 use Semitexa\Core\Container\ContainerFactory;
 use Semitexa\Orm\OrmManager;
@@ -50,6 +51,8 @@ use function Swoole\Coroutine\run;
 #[PreserveGlobalState(false)]
 final class WebhookPipelineConcurrencyStressTest extends TestCase
 {
+    use RequiresBackingServices;
+
     private OrmManager $orm;
     private OutboundDeliveryRepository $outboxRepo;
     private InMemoryWebhookEndpointDefinitionRepository $endpointRepo;
@@ -59,22 +62,8 @@ final class WebhookPipelineConcurrencyStressTest extends TestCase
 
     protected function setUp(): void
     {
-        if (!class_exists(Coroutine::class, false)) {
-            self::markTestSkipped('Swoole\\Coroutine not available — concurrency stress test cannot run');
-        }
-
-        $host = getenv('DB_HOST');
-        if ($host === false || $host === '') {
-            self::markTestSkipped('DB_HOST not configured — stress test requires real MySQL');
-        }
-
-        try {
-            $container = ContainerFactory::get();
-            $this->orm = $container->get(OrmManager::class);
-            $this->orm->getAdapter()->execute('SELECT 1');
-        } catch (\Throwable $e) {
-            self::markTestSkipped('MySQL not reachable: ' . $e->getMessage());
-        }
+        $this->orm = self::mysqlOrm();
+        $container = ContainerFactory::get();
 
         $this->resetTables();
         $this->outboxRepo = $container->get(OutboundDeliveryRepository::class);
