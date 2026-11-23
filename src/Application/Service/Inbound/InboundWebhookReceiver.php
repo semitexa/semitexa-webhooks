@@ -55,6 +55,9 @@ final class InboundWebhookReceiver
     /** Whether this worker has said that its replay store is not shared. */
     private static bool $warnedNotShared = false;
 
+    /** The start of the last error of a delivery whose replay check failed: its retry makes the claim. */
+    private const REPLAY_CHECK_FAILED = 'replay check failed: ';
+
     public function receive(InboundWebhookEnvelope $envelope, ?WebhookInboundProcessorInterface $processor = null): InboundDelivery
     {
         // 1. Resolve endpoint definition
@@ -143,16 +146,30 @@ final class InboundWebhookReceiver
             return $delivery;
         }
 
-        // 5b. The same signed bytes under another event id. Asked only for a
-        // row just stored: an exact repeat under the same id matches its
-        // original above and is handled there (a failed one is processed
-        // again), and a request that died before this point claimed nothing.
-        if ($verificationResult->verified && $delivery->getId() === $id
-            && $this->isReplay($endpoint->getEndpointKey(), $envelope)) {
-            $delivery->markDuplicateIgnored();
-            $this->inboxRepo->save($delivery);
+        // 5b. The same signed bytes under another event id. Asked for a row
+        // just stored: an exact repeat under the same id matches its original
+        // above and is handled there (a failed one is processed again), and a
+        // request that died before this point claimed nothing. Asked again for
+        // a row whose own check failed, as that one never made its claim.
+        if ($verificationResult->verified
+            && ($delivery->getId() === $id || self::replayCheckFailed($delivery))) {
+            try {
+                $replay = $this->isReplay($endpoint->getEndpointKey(), $envelope);
+            } catch (\Throwable $e) {
+                // The row is stored already. Left Received, every retry would
+                // be its duplicate and the delivery lost; Failed, the retry is
+                // processed and makes the claim this one could not (review,
+                // semitexa-webhooks#42).
+                $this->inboundService->markFailed($delivery, self::REPLAY_CHECK_FAILED . $e->getMessage());
 
-            return $delivery;
+                throw $e;
+            }
+            if ($replay) {
+                $delivery->markDuplicateIgnored();
+                $this->inboxRepo->save($delivery);
+
+                return $delivery;
+            }
         }
 
         // 6. Handle signature rejection
@@ -306,6 +323,12 @@ final class InboundWebhookReceiver
             'inbound-signed:' . hash('sha256', $endpointKey . "\n" . $timestamp . '.' . $envelope->rawBody),
             self::REPLAY_WINDOW_SECONDS,
         );
+    }
+
+    private static function replayCheckFailed(InboundDelivery $delivery): bool
+    {
+        return $delivery->getStatus() === InboundStatus::Failed
+            && str_starts_with((string) $delivery->getLastError(), self::REPLAY_CHECK_FAILED);
     }
 
     private static function warnNotShared(string $store): void

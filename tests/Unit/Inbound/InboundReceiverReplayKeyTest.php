@@ -13,6 +13,7 @@ use Semitexa\Webhooks\Application\Service\Inbound\InboundWebhookReceiver;
 use Semitexa\Webhooks\Application\Service\Inbound\InboundWebhookService;
 use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
 use Semitexa\Webhooks\Auth\InMemoryWebhookReplayStore;
+use Semitexa\Webhooks\Domain\Contract\InboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookAttemptRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookEndpointDefinitionRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookInboundProcessorInterface;
@@ -21,7 +22,9 @@ use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
 use Semitexa\Webhooks\Domain\Model\InboundWebhookEnvelope;
 use Semitexa\Webhooks\Domain\Model\WebhookEndpointDefinition;
 use Semitexa\Webhooks\Tests\Unit\Inbound\Fixtures\CuttingReplayStore;
+use Semitexa\Webhooks\Tests\Unit\Inbound\Fixtures\FlakyReplayStore;
 use Semitexa\Webhooks\Tests\Unit\Inbound\Fixtures\KeepingInbox;
+use Semitexa\Webhooks\Tests\Unit\Inbound\Fixtures\ReclaimingInbox;
 
 /**
  * With the database store the default, the receiver's replay key meets its
@@ -37,19 +40,29 @@ final class InboundReceiverReplayKeyTest extends TestCase
 
     private string|false $appEnv = false;
 
+    private bool $warnedBefore = false;
+
+    private ?BootDiagnostics $diagnosticsBefore = null;
+
     /** The timestamp of the first request a test sends, so a later one can carry the same signed bytes. */
     private ?int $firstTime = null;
 
+    // The warned flag and the diagnostics collector are process state: kept
+    // as they were and given back (review, semitexa-webhooks#42).
     protected function setUp(): void
     {
         $this->appEnv = getenv('APP_ENV');
-        self::resetWarned();
+        $this->warnedBefore = (bool) self::warned()->getValue();
+        $current = self::collector()->getValue();
+        $this->diagnosticsBefore = $current instanceof BootDiagnostics ? $current : null;
+        self::warned()->setValue(null, false);
     }
 
     protected function tearDown(): void
     {
         $this->appEnv === false ? putenv('APP_ENV') : putenv('APP_ENV=' . $this->appEnv);
-        self::resetWarned();
+        self::warned()->setValue(null, $this->warnedBefore);
+        self::collector()->setValue(null, $this->diagnosticsBefore);
     }
 
     #[Test]
@@ -68,6 +81,32 @@ final class InboundReceiverReplayKeyTest extends TestCase
         $captured = $this->envelope($endpoint, '{"order":1}', 'evt-3', time: (string) $this->firstTime);
         self::assertSame(InboundStatus::DuplicateIgnored, $receiver->receive($captured, $processor)->getStatus(), 'the same signed bytes are still a replay');
         self::assertSame(2, $processor->calls);
+    }
+
+    /** A store that fails after the row is stored left it Received: the retry was its duplicate (review, semitexa-webhooks#42). */
+    #[Test]
+    public function a_delivery_whose_replay_check_failed_is_processed_on_retry_and_claims_then(): void
+    {
+        $inbox = new ReclaimingInbox();
+        $receiver = $this->receiver('partner', new FlakyReplayStore(), $inbox);
+        $processor = new class implements WebhookInboundProcessorInterface {
+            public int $calls = 0;
+            public function process(InboundWebhookEnvelope $envelope): void { $this->calls++; }
+        };
+        $request = $this->envelope('partner', '{"refund":42}', 'evt-1');
+
+        try {
+            $receiver->receive($request, $processor);
+            self::fail('the replay store failed and the receiver said nothing');
+        } catch (\RuntimeException $e) {
+            self::assertSame('replay store is down', $e->getMessage());
+        }
+        self::assertSame(0, $processor->calls);
+
+        self::assertSame(InboundStatus::Processed, $receiver->receive($request, $processor)->getStatus(), 'the retry is processed');
+        $replay = $this->envelope('partner', '{"refund":42}', 'evt-2', time: (string) $this->firstTime);
+        self::assertSame(InboundStatus::DuplicateIgnored, $receiver->receive($replay, $processor)->getStatus(), 'the retry made the claim');
+        self::assertSame(1, $processor->calls);
     }
 
     #[Test]
@@ -102,7 +141,7 @@ final class InboundReceiverReplayKeyTest extends TestCase
         );
     }
 
-    private function receiver(string $endpoint, WebhookReplayStoreInterface $replays): InboundWebhookReceiver
+    private function receiver(string $endpoint, WebhookReplayStoreInterface $replays, ?InboundDeliveryRepositoryInterface $inbox = null): InboundWebhookReceiver
     {
         $endpoints = $this->createStub(WebhookEndpointDefinitionRepositoryInterface::class);
         $endpoints->method('findByEndpointKey')->willReturn(new WebhookEndpointDefinition(
@@ -112,7 +151,7 @@ final class InboundReceiverReplayKeyTest extends TestCase
             dedupeWindowSeconds: null, handlerClass: null, defaultHeaders: null, metadata: null,
             createdAt: new \DateTimeImmutable(), updatedAt: new \DateTimeImmutable(),
         ));
-        $inbox = new KeepingInbox();
+        $inbox ??= new KeepingInbox();
         $service = new InboundWebhookService();
         (new \ReflectionProperty(InboundWebhookService::class, 'inboundRepo'))->setValue($service, $inbox);
         (new \ReflectionProperty(InboundWebhookService::class, 'attemptRepo'))->setValue($service, $this->createStub(WebhookAttemptRepositoryInterface::class));
@@ -132,8 +171,13 @@ final class InboundReceiverReplayKeyTest extends TestCase
         return $receiver;
     }
 
-    private static function resetWarned(): void
+    private static function warned(): \ReflectionProperty
     {
-        (new \ReflectionProperty(InboundWebhookReceiver::class, 'warnedNotShared'))->setValue(null, false);
+        return new \ReflectionProperty(InboundWebhookReceiver::class, 'warnedNotShared');
+    }
+
+    private static function collector(): \ReflectionProperty
+    {
+        return new \ReflectionProperty(BootDiagnostics::class, 'current');
     }
 }
