@@ -325,10 +325,14 @@ final class InboundWebhookReceiver
         );
     }
 
+    /**
+     * A row handed back whose replay check failed. The inbox claims a failed
+     * row back to received before it returns it, and keeps its last error, so
+     * the mark is what tells (Fable's review, semitexa-webhooks#42).
+     */
     private static function replayCheckFailed(InboundDelivery $delivery): bool
     {
-        return $delivery->getStatus() === InboundStatus::Failed
-            && str_starts_with((string) $delivery->getLastError(), self::REPLAY_CHECK_FAILED);
+        return str_starts_with((string) $delivery->getLastError(), self::REPLAY_CHECK_FAILED);
     }
 
     private static function warnNotShared(string $store): void

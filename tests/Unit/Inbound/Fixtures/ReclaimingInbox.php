@@ -10,7 +10,8 @@ use Semitexa\Webhooks\Domain\Model\InboundDelivery;
 
 /**
  * The MySQL inbox's dedupe contract, in memory: a delivery that failed here is
- * handed back to be processed again, and any other repeat is a duplicate.
+ * claimed back to received, its last error kept, and handed back to be
+ * processed again; any other repeat is a duplicate.
  */
 final class ReclaimingInbox implements InboundDeliveryRepositoryInterface
 {
@@ -24,6 +25,8 @@ final class ReclaimingInbox implements InboundDeliveryRepositoryInterface
             return $this->byKey[$delivery->getDedupeKey()] = $delivery;
         }
         if ($existing->getStatus() === InboundStatus::Failed) {
+            (new \ReflectionProperty(InboundDelivery::class, 'status'))->setValue($existing, InboundStatus::Received);
+
             return $existing;
         }
         $copy = clone $existing;
