@@ -126,7 +126,7 @@ final class InboundWebhookReceiver
             // are enough to see what was tried.
             rawBody: $verificationResult->verified ? $envelope->rawBody : mb_strcut($envelope->rawBody, 0, self::REJECTED_BODY_BYTES),
             rawBodySha256: $rawBodySha256,
-            parsedEventType: ($type = $this->extractEventType($envelope)) === null ? null : mb_strcut($type, 0, 191),
+            parsedEventType: ($type = $this->extractEventType($envelope, $verificationResult->verified)) === null ? null : mb_strcut($type, 0, 191),
             firstReceivedAt: $now,
             lastReceivedAt: $now,
         );
@@ -237,7 +237,14 @@ final class InboundWebhookReceiver
             ?? null;
     }
 
-    private function extractEventType(InboundWebhookEnvelope $envelope): ?string
+    /**
+     * The event type a request names: a header, or the "type" of a JSON body.
+     * Only a verified body is decoded. A rejected request is anybody's, and its
+     * body was decoded whole before its signature counted: a 2 MB body of small
+     * objects took 106 MB and killed the worker
+     * (tk-webhooks-unsigned-body-decoded-before-signature).
+     */
+    private function extractEventType(InboundWebhookEnvelope $envelope, bool $verified): ?string
     {
         $headers = $envelope->headers;
         $lower = [];
@@ -253,7 +260,7 @@ final class InboundWebhookReceiver
         }
 
         // Try to extract from JSON body
-        if ($envelope->contentType !== null && str_contains($envelope->contentType, 'json')) {
+        if ($verified && $envelope->contentType !== null && str_contains($envelope->contentType, 'json')) {
             $data = json_decode($envelope->rawBody, true);
             if (is_array($data) && isset($data['type'])) {
                 return (string) $data['type'];
