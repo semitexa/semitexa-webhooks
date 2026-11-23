@@ -6,6 +6,8 @@ namespace Semitexa\Webhooks\Application\Service\Inbound;
 
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Discovery\BootDiagnostics;
+use Semitexa\Core\Environment;
 use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\Webhooks\Domain\Contract\InboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookEndpointDefinitionRepositoryInterface;
@@ -49,6 +51,9 @@ final class InboundWebhookReceiver
 
     /** The signature's ±300 s window, both ways: a request is valid that long. */
     private const REPLAY_WINDOW_SECONDS = 600;
+
+    /** Whether this worker has said that its replay store is not shared. */
+    private static bool $warnedNotShared = false;
 
     public function receive(InboundWebhookEnvelope $envelope, ?WebhookInboundProcessorInterface $processor = null): InboundDelivery
     {
@@ -273,10 +278,17 @@ final class InboundWebhookReceiver
     /** Whether these exact signed bytes were received at this endpoint within the window. */
     private function isReplay(string $endpointKey, InboundWebhookEnvelope $envelope): bool
     {
-        // Only a store the workers share: the default in-memory one is per
-        // process, would catch a replay only on the worker that saw the
-        // original, and kept every key of unique bytes for the worker's life.
-        if (!isset($this->replayStore) || !$this->replayStore->isShared()) {
+        if (!isset($this->replayStore)) {
+            return false;
+        }
+        // Only a store the workers share: a per-process one would catch a
+        // replay only on the worker that saw the original, and keep every key
+        // of unique bytes for the worker's life. The default is shared, so one
+        // that is not was bound by a project: said once, outside dev, rather
+        // than skipped in silence.
+        if (!$this->replayStore->isShared()) {
+            self::warnNotShared($this->replayStore->diagnosticName());
+
             return false;
         }
         $timestamp = '';
@@ -287,8 +299,27 @@ final class InboundWebhookReceiver
         }
 
         return !$this->replayStore->markIfFirstSeen(
-            'inbound-signed:' . $endpointKey . ':' . hash('sha256', $timestamp . '.' . $envelope->rawBody),
+            // One hash of the endpoint and the signed bytes, 79 characters. The
+            // endpoint key may be 191 itself, and the database store's column
+            // cuts a longer key, so every request at a long endpoint shared one
+            // key and all but the first were taken for replays.
+            'inbound-signed:' . hash('sha256', $endpointKey . "\n" . $timestamp . '.' . $envelope->rawBody),
             self::REPLAY_WINDOW_SECONDS,
+        );
+    }
+
+    private static function warnNotShared(string $store): void
+    {
+        $env = strtolower(trim((string) Environment::getEnvValue('APP_ENV', 'prod')));
+        if (self::$warnedNotShared || ($env !== 'prod' && $env !== 'production')) {
+            return;
+        }
+        self::$warnedNotShared = true;
+        BootDiagnostics::current()->invalidUsage(
+            'WebhookReplayStore',
+            "inbound webhooks: the bound replay store ({$store}) is not shared across workers, so the receiver checks no replays: "
+            . 'a captured signed request is processed again under every new event id. Bind a shared one: DatabaseWebhookReplayStore '
+            . '(the default) or RedisWebhookReplayStore.',
         );
     }
 }

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Auth;
 
-use Semitexa\Core\Attribute\SatisfiesServiceContract;
 use Semitexa\Core\Discovery\BootDiagnostics;
 use Semitexa\Core\Environment;
 use Semitexa\Core\Lifecycle\TestStateResetRegistry;
@@ -15,9 +14,10 @@ use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
  * worker keeps the seen set across requests (which is the whole point — replay
  * detection has to outlive a single request).
  *
- * Production deployments will override the binding with a DB/Redis store; in
- * tests this default is used directly so each test process has predictable
- * isolation via clear().
+ * Not bound: DatabaseWebhookReplayStore is the default, shared by every worker
+ * (tk-webhooks-replay-check-off-with-the-default-store). Tests construct this
+ * one directly, so each test process has predictable isolation via clear();
+ * a project that binds it in production is warned on first use.
  *
  * NOT registered with PerRequestStateRegistry — that registry is for
  * per-request state. A replay store is per-WORKER state by design.
@@ -27,7 +27,6 @@ use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
  * alongside the demo grant stores. The framework never calls the test
  * registry, so the per-worker survival contract is preserved.
  */
-#[SatisfiesServiceContract(of: WebhookReplayStoreInterface::class)]
 final class InMemoryWebhookReplayStore implements WebhookReplayStoreInterface
 {
     private const REGISTRY_NAME = 'in_memory_webhook_replay_store';
