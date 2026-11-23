@@ -12,7 +12,7 @@
     "require": {
         "php": "^8.4",
         "semitexa/core": ">=2026.10.29.1052 || dev-master",
-        "semitexa/orm": ">=2026.11.14.1040 || dev-master"
+        "semitexa/orm": ">=2026.11.14.1827 || dev-master"
     },
     "require-dev": {
         "semitexa/testing": "*"
@@ -33,7 +33,7 @@
         },
         "semitexa": {
             "floors": {
-                "semitexa/orm": "2026.11.14.1040",
+                "semitexa/orm": "2026.11.14.1827",
                 "semitexa/core": "2026.10.29.1052"
             }
         }
