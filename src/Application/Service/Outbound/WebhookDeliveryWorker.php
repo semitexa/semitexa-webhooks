@@ -6,6 +6,7 @@ namespace Semitexa\Webhooks\Application\Service\Outbound;
 
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Attribute\WorkerState;
 use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\Webhooks\Domain\Contract\OutboundDeliveryRepositoryInterface;
 use Semitexa\Webhooks\Domain\Contract\WebhookAttemptRepositoryInterface;
@@ -42,6 +43,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsService]
 final class WebhookDeliveryWorker
 {
+    #[WorkerState('Console output of the one webhook:work process, set by its command; no HTTP worker calls setOutput().')]
     private ?OutputInterface $output = null;
     private bool $running = true;
 
