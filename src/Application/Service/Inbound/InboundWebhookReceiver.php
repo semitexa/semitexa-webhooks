@@ -351,6 +351,10 @@ final class InboundWebhookReceiver
                 // delivery until the sync, so the two keys below stand in.
                 self::warnNoOwnedClaim($this->replayStore->diagnosticName(), $e->getMessage());
             }
+        } else {
+            // A store of a project's own that records no owner: the same two
+            // keys, and the same warning (review, semitexa-webhooks#43).
+            self::warnNoOwnedClaim($this->replayStore->diagnosticName(), 'it does not implement ' . OwnedClaimStoreInterface::class);
         }
 
         return $this->isReplayByTwoKeys($signed, $deliveryId);
@@ -400,8 +404,9 @@ final class InboundWebhookReceiver
         self::$warnedNoOwnedClaim = true;
         BootDiagnostics::current()->invalidUsage(
             'WebhookReplayStore',
-            "inbound webhooks: the replay store ({$store}) cannot record which delivery made a claim ({$reason}) "
-            . 'Until it can, the receiver claims with two keys, which a store error between them can open to a replay. Run orm:sync.',
+            "inbound webhooks: the replay store ({$store}) cannot record which delivery made a claim ({$reason}). "
+            . 'Until it can, the receiver claims with two keys, which a store error between them can open to a replay. '
+            . 'Run orm:sync for the database store, or implement OwnedClaimStoreInterface on a store of your own.',
         );
     }
 

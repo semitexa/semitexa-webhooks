@@ -311,6 +311,42 @@ final class InboundReceiverReplayKeyTest extends TestCase
         self::assertStringContainsString('orm:sync', $warnings[0]->message);
     }
 
+    /** A shared store of a project's own that records no owner falls back silently no more (review, semitexa-webhooks#43). */
+    #[Test]
+    public function a_shared_store_that_records_no_owner_falls_back_and_says_so_once(): void
+    {
+        $store = new class implements WebhookReplayStoreInterface {
+            /** @var array<string, true> */
+            private array $seen = [];
+            public function seen(string $key): bool { return isset($this->seen[$key]); }
+            public function markSeen(string $key): void { $this->seen[$key] = true; }
+            public function markIfFirstSeen(string $key, ?int $ttlSeconds = null): bool
+            {
+                if (isset($this->seen[$key])) {
+                    return false;
+                }
+                $this->seen[$key] = true;
+
+                return true;
+            }
+            public function clear(): void { $this->seen = []; }
+            public function isShared(): bool { return true; }
+            public function diagnosticName(): string { return 'own-store'; }
+        };
+        $diagnostics = BootDiagnostics::begin();
+        $receiver = $this->receiver('partner', $store, new ReclaimingInbox());
+        $processor = $this->processor();
+
+        self::assertSame(InboundStatus::Processed, $receiver->receive($this->envelope('partner', '{"refund":7}', 'evt-1'), $processor)->getStatus());
+        $copy = $this->envelope('partner', '{"refund":7}', 'evt-2', time: (string) $this->firstTime);
+        self::assertSame(InboundStatus::DuplicateIgnored, $receiver->receive($copy, $processor)->getStatus(), 'the two keys still catch a replay');
+
+        $warnings = array_values(array_filter($diagnostics->getWarnings(), static fn ($w): bool => $w->component === 'WebhookReplayStore'));
+        self::assertCount(1, $warnings, 'said once, not per delivery');
+        self::assertStringContainsString('own-store', $warnings[0]->message);
+        self::assertStringContainsString('OwnedClaimStoreInterface', $warnings[0]->message);
+    }
+
     #[Test]
     public function a_store_the_workers_do_not_share_is_named_in_production(): void
     {
