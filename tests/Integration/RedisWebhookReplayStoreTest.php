@@ -62,6 +62,19 @@ final class RedisWebhookReplayStoreTest extends TestCase
     }
 
     #[Test]
+    public function claimFor_is_won_once_and_again_only_by_its_owner(): void
+    {
+        $store = new RedisWebhookReplayStore($this->pool);
+
+        self::assertTrue($store->claimFor($this->k('owned'), 'delivery-a', 600));
+        self::assertTrue($store->claimFor($this->k('owned'), 'delivery-a', 600), 'its owner claims it again');
+        self::assertFalse($store->claimFor($this->k('owned'), 'delivery-b', 600), 'another owner does not');
+
+        self::assertTrue($store->markIfFirstSeen($this->k('ownerless'), 600));
+        self::assertFalse($store->claimFor($this->k('ownerless'), 'delivery-a', 600), 'a key claimed with no owner is nobody\'s');
+    }
+
+    #[Test]
     public function first_markIfFirstSeen_returns_true(): void
     {
         $store = new RedisWebhookReplayStore($this->pool);

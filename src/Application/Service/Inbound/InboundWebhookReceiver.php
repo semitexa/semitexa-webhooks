@@ -19,6 +19,8 @@ use Semitexa\Webhooks\Domain\Model\WebhookVerificationInput;
 use Semitexa\Webhooks\Domain\Enum\InboundStatus;
 use Semitexa\Webhooks\Domain\Enum\SignatureStatus;
 use Semitexa\Webhooks\Domain\Enum\WebhookDirection;
+use Semitexa\Webhooks\Auth\Contract\OwnedClaimStoreInterface;
+use Semitexa\Webhooks\Auth\Contract\OwnedClaimUnavailableException;
 use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
 
 #[AsService]
@@ -54,6 +56,9 @@ final class InboundWebhookReceiver
 
     /** Whether this worker has said that its replay store is not shared. */
     private static bool $warnedNotShared = false;
+
+    /** Whether this worker has said that its replay store cannot record a claim's owner yet. */
+    private static bool $warnedNoOwnedClaim = false;
 
     /**
      * How long a delivery's owner key is kept: twice the claim's window, so a
@@ -155,11 +160,11 @@ final class InboundWebhookReceiver
         // be processed again as well as one just stored: the retry of a failed
         // delivery, signed again with a new timestamp, is new signed bytes,
         // and unclaimed they were processed once more under every other event
-        // id. A delivery that loses the claim to its own earlier attempt (an
-        // exact resend of a failure, or a worker that died after claiming) is
-        // told from another delivery by its owner key, not by anything in the
-        // row: the row's last error is also written by the processor and by
-        // the inbox when it takes an abandoned row.
+        // id. The claim names this delivery, so one that meets its own earlier
+        // claim (an exact resend of a failure, or a worker that died after
+        // claiming) goes on, and one that meets another's does not. Nothing in
+        // the row says it: the row's last error is also written by the
+        // processor and by the inbox when it takes an abandoned row.
         if ($verificationResult->verified) {
             try {
                 $replay = $this->isReplay($endpoint->getEndpointKey(), $envelope, $delivery->getId());
@@ -302,17 +307,12 @@ final class InboundWebhookReceiver
 
     /**
      * Whether these exact signed bytes were received at this endpoint within
-     * the window by another delivery. Two keys, in this order:
+     * the window by another delivery.
      *
-     *  1. the owner key, of the bytes and this delivery: whether it was there
-     *     already says that an earlier attempt of this delivery came this far
-     *     with these bytes;
-     *  2. the claim, of the bytes alone: one winner.
-     *
-     * A lost claim with the owner key already there is this delivery's own
-     * claim, and it goes on; with the owner key new, the bytes are another
-     * delivery's. The owner key is written first, so a worker that dies or a
-     * store that fails anywhere after it leaves the retry able to tell.
+     * A store that records a claim's owner is asked once: the claim is this
+     * delivery's, now or from an earlier attempt, or it is another's. One
+     * write, so a store error or a dead worker leaves either no claim or a
+     * claim that names its winner (review, semitexa-webhooks#43).
      */
     private function isReplay(string $endpointKey, InboundWebhookEnvelope $envelope, string $deliveryId): bool
     {
@@ -342,6 +342,42 @@ final class InboundWebhookReceiver
         // endpoint shared one key and all but the first were taken for replays.
         $signed = hash('sha256', $endpointKey . "\n" . $timestamp . '.' . $envelope->rawBody);
 
+        if ($this->replayStore instanceof OwnedClaimStoreInterface) {
+            try {
+                return !$this->replayStore->claimFor('inbound-signed:' . $signed, $deliveryId, self::REPLAY_WINDOW_SECONDS);
+            } catch (OwnedClaimUnavailableException $e) {
+                // The schema is behind the code (deployed, orm:sync not run
+                // yet). Nothing was written; failing here would fail every
+                // delivery until the sync, so the two keys below stand in.
+                self::warnNoOwnedClaim($this->replayStore->diagnosticName(), $e->getMessage());
+            }
+        }
+
+        return $this->isReplayByTwoKeys($signed, $deliveryId);
+    }
+
+    /**
+     * The same question for a store that cannot record a claim's owner (a
+     * project's own WebhookReplayStoreInterface, or the database store before
+     * orm:sync). Two keys, in this order:
+     *
+     *  1. the owner key, of the bytes and this delivery: whether it was there
+     *     already says that an earlier attempt of this delivery came this far
+     *     with these bytes;
+     *  2. the claim, of the bytes alone: one winner.
+     *
+     * A lost claim with the owner key already there is taken for this
+     * delivery's own, and it goes on; with the owner key new, the bytes are
+     * another delivery's.
+     *
+     * Fail-open on a store error between the two writes: a delivery whose
+     * owner key was written and whose claim call then failed is taken, on its
+     * retry, for the holder of a claim another delivery made. Two writes
+     * cannot close that without dropping a winner whose answer was lost;
+     * OwnedClaimStoreInterface does.
+     */
+    private function isReplayByTwoKeys(string $signed, string $deliveryId): bool
+    {
         $ownerIsNew = $this->replayStore->markIfFirstSeen(
             'inbound-owner:' . hash('sha256', $signed . "\n" . $deliveryId),
             self::REPLAY_OWNER_SECONDS,
@@ -349,6 +385,24 @@ final class InboundWebhookReceiver
         $claimed = $this->replayStore->markIfFirstSeen('inbound-signed:' . $signed, self::REPLAY_WINDOW_SECONDS);
 
         return !$claimed && $ownerIsNew;
+    }
+
+    /**
+     * Said once per worker, in every environment: unlike a store that is not
+     * shared, this one is a deployment step left undone, and it goes away by
+     * itself once the step is taken.
+     */
+    private static function warnNoOwnedClaim(string $store, string $reason): void
+    {
+        if (self::$warnedNoOwnedClaim) {
+            return;
+        }
+        self::$warnedNoOwnedClaim = true;
+        BootDiagnostics::current()->invalidUsage(
+            'WebhookReplayStore',
+            "inbound webhooks: the replay store ({$store}) cannot record which delivery made a claim ({$reason}) "
+            . 'Until it can, the receiver claims with two keys, which a store error between them can open to a replay. Run orm:sync.',
+        );
     }
 
     private static function warnNotShared(string $store): void

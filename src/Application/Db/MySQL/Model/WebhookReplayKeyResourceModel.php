@@ -24,6 +24,10 @@ use Semitexa\Orm\Metadata\HasColumnReferences;
  * to MySqlWebhookReplayStore::markIfFirstSeen() store NULL for "never
  * expires"; callers that pass a positive int store an absolute datetime.
  *
+ * `owner` is who made the claim, for OwnedClaimStoreInterface::claimFor():
+ * the inbound receiver puts the delivery's id there, so a delivery tried
+ * again knows its own claim. NULL for a key claimed by markIfFirstSeen().
+ *
  * Expired rows remain blocking until cleanupExpired() removes them. This
  * is safer than delete-then-insert (which is non-atomic and could
  * re-introduce a replay race) and matches the production-store contract:
@@ -46,5 +50,8 @@ final readonly class WebhookReplayKeyResourceModel
 
         #[Column(name: 'expires_at', type: MySqlType::Datetime, nullable: true)]
         public ?\DateTimeImmutable $expiresAt,
+
+        #[Column(name: 'owner', type: MySqlType::Varchar, length: 64, nullable: true)]
+        public ?string $owner = null,
     ) {}
 }

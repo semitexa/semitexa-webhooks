@@ -9,6 +9,8 @@ use Semitexa\Orm\Adapter\DialectResolver;
 use Semitexa\Orm\Adapter\SqlIdentifier;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Webhooks\Auth\Contract\ExpiringWebhookReplayStoreInterface;
+use Semitexa\Webhooks\Auth\Contract\OwnedClaimStoreInterface;
+use Semitexa\Webhooks\Auth\Contract\OwnedClaimUnavailableException;
 
 /**
  * Database-backed webhook replay store. The default binding,
@@ -59,11 +61,11 @@ use Semitexa\Webhooks\Auth\Contract\ExpiringWebhookReplayStoreInterface;
  *   hand keeps `new MySqlWebhookReplayStore($orm)`.
  *
  * Connection management:
- *   Uses OrmManager::getAdapter()->execute() — every call goes through the
+ *   Every statement goes through the ORM adapter's execute(), on the
  *   adapter's pooled connection. The claim's row count comes back through
  *   QueryResult::$rowCount (PDO's rowCount: 1 for inserted, 0 for skipped).
  */
-final class MySqlWebhookReplayStore implements ExpiringWebhookReplayStoreInterface
+final class MySqlWebhookReplayStore implements ExpiringWebhookReplayStoreInterface, OwnedClaimStoreInterface
 {
     public const TABLE = 'webhook_replay_keys';
 
@@ -105,6 +107,55 @@ final class MySqlWebhookReplayStore implements ExpiringWebhookReplayStoreInterfa
         // the duplicate key skipped it. That is
         // exactly the atomic check-and-claim semantics this method needs.
         return $result->rowCount > 0;
+    }
+
+    /**
+     * The claim with its owner in the row: the same skip-a-duplicate insert,
+     * and when it was skipped, the owner the row holds is read and compared.
+     * One row and one write, so no failure can leave a claim without its
+     * owner. A row claimed by markIfFirstSeen() has no owner and is nobody's.
+     *
+     * A table from before the `owner` column fails the insert whole: said as
+     * OwnedClaimUnavailableException, with nothing written.
+     */
+    public function claimFor(string $key, string $owner, ?int $ttlSeconds = null): bool
+    {
+        $now = new \DateTimeImmutable();
+        $expiresAt = $ttlSeconds !== null ? $now->modify('+' . max(0, $ttlSeconds) . ' seconds') : null;
+        $adapter = $this->orm->getAdapter();
+
+        try {
+            $inserted = $adapter->execute(self::insertIfAbsent($adapter, withOwner: true), [
+                'key'            => $key,
+                'first_seen_at'  => $now->format('Y-m-d H:i:s'),
+                'expires_at'     => $expiresAt?->format('Y-m-d H:i:s'),
+                'owner'          => $owner,
+            ])->rowCount > 0;
+        } catch (\Throwable $e) {
+            if (self::isMissingColumn($e)) {
+                throw new OwnedClaimUnavailableException(
+                    sprintf('%s has no owner column yet: run orm:sync.', self::TABLE),
+                    previous: $e,
+                );
+            }
+
+            throw $e;
+        }
+        if ($inserted) {
+            return true;
+        }
+
+        $row = $adapter->execute(
+            sprintf('SELECT owner FROM %s WHERE replay_key = :key LIMIT 1', SqlIdentifier::quote(self::TABLE)),
+            ['key' => $key],
+        )->fetchOne();
+
+        // No row: cleanup deleted an expired key between the two statements.
+        // That is not this owner's claim, so false, which the receiver takes
+        // for another delivery's bytes. It cannot meet a verified request:
+        // the key lives 600 s and the signature verifies 300 s either way,
+        // so bytes whose key expired no longer verify.
+        return $row !== null && ($row['owner'] ?? null) === $owner;
     }
 
     /**
@@ -190,13 +241,34 @@ final class MySqlWebhookReplayStore implements ExpiringWebhookReplayStoreInterfa
     }
 
     /** An insert that skips a key already there, in this database's words. */
-    private static function insertIfAbsent(DatabaseAdapterInterface $adapter): string
+    private static function insertIfAbsent(DatabaseAdapterInterface $adapter, bool $withOwner = false): string
     {
-        $into = sprintf('INTO %s (replay_key, first_seen_at, expires_at) VALUES (:key, :first_seen_at, :expires_at)', SqlIdentifier::quote(self::TABLE));
+        $into = sprintf(
+            $withOwner
+                ? 'INTO %s (replay_key, first_seen_at, expires_at, owner) VALUES (:key, :first_seen_at, :expires_at, :owner)'
+                : 'INTO %s (replay_key, first_seen_at, expires_at) VALUES (:key, :first_seen_at, :expires_at)',
+            SqlIdentifier::quote(self::TABLE),
+        );
 
         return DialectResolver::for($adapter)->upsertsWithOnConflict()
             ? 'INSERT ' . $into . ' ON CONFLICT (replay_key) DO NOTHING'
             : 'INSERT IGNORE ' . $into;
+    }
+
+    /**
+     * Whether a statement failed because the table has no such column: MySQL's
+     * 42S22, PostgreSQL's 42703, and SQLite, which has only words for it.
+     */
+    private static function isMissingColumn(\Throwable $e): bool
+    {
+        for ($cause = $e; $cause !== null; $cause = $cause->getPrevious()) {
+            if (in_array((string) $cause->getCode(), ['42S22', '42703'], true)
+                || preg_match('/SQLSTATE\[(42S22|42703)\]|unknown column|no such column|has no column named/i', $cause->getMessage()) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
