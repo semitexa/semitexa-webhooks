@@ -19,8 +19,8 @@ use Semitexa\Webhooks\Auth\MySqlWebhookReplayStore;
  * from a previous run never poisons the next run.
  *
  * The atomic-claim contract is tested end-to-end against the real
- * database — the unique-key constraint and INSERT IGNORE row-count
- * behavior are MySQL guarantees, not framework code, so verifying them
+ * database — the unique-key constraint and the skipped insert's row count
+ * are MySQL guarantees, not framework code, so verifying them
  * against the real engine is the only honest proof.
  */
 final class MySqlWebhookReplayStoreTest extends TestCase
@@ -44,8 +44,10 @@ final class MySqlWebhookReplayStoreTest extends TestCase
             return;
         }
         try {
+            // Emptied, not dropped: the store is the default binding now, and a
+            // later test in the run that gets it from the container needs its table.
             $this->orm->getAdapter()->execute(
-                sprintf('DROP TABLE IF EXISTS `%s`', MySqlWebhookReplayStore::TABLE),
+                sprintf('DELETE FROM `%s`', MySqlWebhookReplayStore::TABLE),
             );
         } catch (\Throwable) {
             // best effort
@@ -169,6 +171,22 @@ final class MySqlWebhookReplayStoreTest extends TestCase
         self::assertFalse($this->store->seen('replay-test-clean-2'));
         self::assertTrue($this->store->seen('replay-test-keep-no-ttl'), 'NULL expires_at row must NOT be deleted');
         self::assertTrue($this->store->seen('replay-test-keep-future'), 'future expires_at row must NOT be deleted');
+    }
+
+    /** The batch picks its keys in a derived table now, standard SQL MySQL also takes (tk-webhooks-replay-check-off-with-the-default-store). */
+    #[Test]
+    public function cleanupExpired_deletes_a_batch_of_at_most_its_limit(): void
+    {
+        foreach (['replay-test-batch-1', 'replay-test-batch-2', 'replay-test-batch-3'] as $key) {
+            $this->store->markIfFirstSeen($key, 1);
+        }
+        $this->store->markIfFirstSeen('replay-test-batch-keep', null);
+        $later = new \DateTimeImmutable('+1 hour');
+
+        self::assertSame(2, $this->store->cleanupExpired($later, limit: 2));
+        self::assertSame(1, $this->store->countExpired($later));
+        self::assertSame(1, $this->store->cleanupExpired($later, limit: 2));
+        self::assertTrue($this->store->seen('replay-test-batch-keep'));
     }
 
     #[Test]

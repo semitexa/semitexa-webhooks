@@ -92,8 +92,10 @@ final class WebhookCleanupIntegrationTest extends TestCase
             $this->orm->getAdapter()->execute('DROP TABLE IF EXISTS `webhook_attempts`');
             $this->orm->getAdapter()->execute('DROP TABLE IF EXISTS `webhook_inbox`');
             $this->orm->getAdapter()->execute('DROP TABLE IF EXISTS `webhook_outbox`');
+            // Emptied, not dropped: the replay store is the default binding
+            // now, and a later test that gets it from the container needs its table.
             $this->orm->getAdapter()->execute(
-                sprintf('DROP TABLE IF EXISTS `%s`', MySqlWebhookReplayStore::TABLE),
+                sprintf('DELETE FROM `%s`', MySqlWebhookReplayStore::TABLE),
             );
         } catch (\Throwable) {
             // best effort

@@ -38,7 +38,8 @@ use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
  *   deployments wire this explicitly in the container bootstrap (or via
  *   their own factory/configuration mechanism) so the choice of replay
  *   store is an explicit deployment decision, not framework magic. The
- *   default InMemoryWebhookReplayStore wins in tests and demos.
+ *   default is DatabaseWebhookReplayStore; a project binds this one with a
+ *   class of its own that builds it, which wins over the package's default.
  *
  * Connection management:
  *   Uses RedisConnectionPool::withConnection() — a borrowed Predis client
