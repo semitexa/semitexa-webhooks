@@ -24,6 +24,7 @@ use Semitexa\Webhooks\Domain\Model\WebhookEndpointDefinition;
 use Semitexa\Webhooks\Tests\Unit\Inbound\Fixtures\CuttingReplayStore;
 use Semitexa\Webhooks\Tests\Unit\Inbound\Fixtures\FlakyReplayStore;
 use Semitexa\Webhooks\Tests\Unit\Inbound\Fixtures\KeepingInbox;
+use Semitexa\Webhooks\Tests\Unit\Inbound\Fixtures\LostReplyReplayStore;
 use Semitexa\Webhooks\Tests\Unit\Inbound\Fixtures\ReclaimingInbox;
 
 /**
@@ -109,6 +110,121 @@ final class InboundReceiverReplayKeyTest extends TestCase
         self::assertSame(1, $processor->calls);
     }
 
+    /**
+     * The retry of a failed delivery, signed again with a new timestamp, was
+     * handed back by the inbox and processed with no claim: its bytes, captured,
+     * ran once more under another event id
+     * (tk-webhooks-reclaimed-delivery-retry-is-not-claimed).
+     */
+    #[Test]
+    public function a_failed_deliverys_re_signed_retry_claims_its_bytes(): void
+    {
+        $receiver = $this->receiver('partner', new CuttingReplayStore(), new ReclaimingInbox());
+        $processor = $this->processor(failures: 1);
+
+        self::assertSame(InboundStatus::Failed, $receiver->receive($this->envelope('partner', '{"refund":42}', 'evt-1'), $processor)->getStatus());
+        $later = (string) ($this->firstTime + 1);
+        self::assertSame(InboundStatus::Processed, $receiver->receive($this->envelope('partner', '{"refund":42}', 'evt-1', time: $later), $processor)->getStatus(), 'the retry is processed');
+
+        $captured = $this->envelope('partner', '{"refund":42}', 'evt-2', time: $later);
+        self::assertSame(InboundStatus::DuplicateIgnored, $receiver->receive($captured, $processor)->getStatus(), 'the retry claimed its bytes');
+        self::assertSame(2, $processor->calls);
+    }
+
+    /**
+     * A row that never made its claim was known by its last error, and the
+     * inbox writes that column over when it takes an abandoned row: the retry
+     * then ran with no claim.
+     */
+    #[Test]
+    public function a_retry_claims_whatever_the_rows_last_error_says(): void
+    {
+        $inbox = new ReclaimingInbox();
+        $receiver = $this->receiver('partner', new FlakyReplayStore(), $inbox);
+        $processor = $this->processor();
+        $request = $this->envelope('partner', '{"refund":42}', 'evt-1');
+
+        try {
+            $receiver->receive($request, $processor);
+            self::fail('the replay store failed and the receiver said nothing');
+        } catch (\RuntimeException $e) {
+            self::assertSame('replay store is down', $e->getMessage());
+        }
+        $row = $inbox->findByDedupeKey((new InboundDedupeKeyFactory())->generate('partner', 'partner', 'evt-1', '{"refund":42}', null));
+        self::assertNotNull($row, 'the row was stored before the store failed');
+        self::assertSame(InboundStatus::Failed, $row->getStatus());
+        // As the inbox does to a row left received for 15 minutes.
+        $row->markFailed('Abandoned before processing.');
+
+        self::assertSame(InboundStatus::Processed, $receiver->receive($request, $processor)->getStatus(), 'the retry is processed');
+        $captured = $this->envelope('partner', '{"refund":42}', 'evt-2', time: (string) $this->firstTime);
+        self::assertSame(InboundStatus::DuplicateIgnored, $receiver->receive($captured, $processor)->getStatus(), 'the retry made the claim');
+        self::assertSame(1, $processor->calls);
+    }
+
+    /**
+     * A claim that reached the store while its answer did not (the worker
+     * died, the connection dropped): the retry found its own key and was
+     * dropped as a replay, so the event never ran.
+     */
+    #[Test]
+    public function a_delivery_that_claimed_and_died_is_processed_on_retry(): void
+    {
+        $receiver = $this->receiver('partner', new LostReplyReplayStore(), new ReclaimingInbox());
+        $processor = $this->processor();
+        $request = $this->envelope('partner', '{"refund":42}', 'evt-1');
+
+        try {
+            $receiver->receive($request, $processor);
+            self::fail('the replay store failed and the receiver said nothing');
+        } catch (\RuntimeException $e) {
+            self::assertSame('the reply was lost', $e->getMessage());
+        }
+        self::assertSame(0, $processor->calls);
+
+        self::assertSame(InboundStatus::Processed, $receiver->receive($request, $processor)->getStatus(), 'the claim is its own');
+        self::assertSame(1, $processor->calls);
+
+        $captured = $this->envelope('partner', '{"refund":42}', 'evt-2', time: (string) $this->firstTime);
+        self::assertSame(InboundStatus::DuplicateIgnored, $receiver->receive($captured, $processor)->getStatus(), 'and nobody else\'s');
+        self::assertSame(1, $processor->calls);
+    }
+
+    /**
+     * The mark was the start of the row's last error, which a processor writes
+     * too: one failing with those words made its own exact resend claim again,
+     * lose to itself and be dropped.
+     */
+    #[Test]
+    public function a_processor_error_does_not_decide_whether_the_retry_is_a_replay(): void
+    {
+        $receiver = $this->receiver('partner', new CuttingReplayStore(), new ReclaimingInbox());
+        $processor = $this->processor(failures: 1, error: 'replay check failed: the ledger is closed');
+        $request = $this->envelope('partner', '{"refund":42}', 'evt-1');
+
+        $failed = $receiver->receive($request, $processor);
+        self::assertSame(InboundStatus::Failed, $failed->getStatus());
+        self::assertSame('replay check failed: the ledger is closed', $failed->getLastError());
+
+        self::assertSame(InboundStatus::Processed, $receiver->receive($request, $processor)->getStatus(), 'an exact resend of a failed delivery is processed again');
+        self::assertSame(2, $processor->calls);
+    }
+
+    /** What must stay: one captured request under another event id runs once. */
+    #[Test]
+    public function the_same_signed_bytes_under_another_event_id_are_a_replay(): void
+    {
+        $inbox = new KeepingInbox();
+        $receiver = $this->receiver('partner', new CuttingReplayStore(), $inbox);
+        $processor = $this->processor();
+
+        self::assertSame(InboundStatus::Processed, $receiver->receive($this->envelope('partner', '{"refund":42}', 'evt-1'), $processor)->getStatus());
+        $captured = $this->envelope('partner', '{"refund":42}', 'evt-2', time: (string) $this->firstTime);
+        self::assertSame(InboundStatus::DuplicateIgnored, $receiver->receive($captured, $processor)->getStatus());
+        self::assertCount(2, $inbox->byKey, 'two deliveries, one run');
+        self::assertSame(1, $processor->calls);
+    }
+
     #[Test]
     public function a_store_the_workers_do_not_share_is_named_in_production(): void
     {
@@ -121,6 +237,24 @@ final class InboundReceiverReplayKeyTest extends TestCase
         self::assertCount(1, $warnings);
         self::assertStringContainsString('in-memory (worker-local)', $warnings[0]->message);
         self::assertStringContainsString('checks no replays', $warnings[0]->message);
+    }
+
+    /** A processor that counts its calls and fails the first $failures of them. */
+    private function processor(int $failures = 0, string $error = 'the ledger is closed'): WebhookInboundProcessorInterface
+    {
+        return new class($failures, $error) implements WebhookInboundProcessorInterface {
+            public int $calls = 0;
+
+            public function __construct(private int $failures, private readonly string $error) {}
+
+            public function process(InboundWebhookEnvelope $envelope): void
+            {
+                $this->calls++;
+                if ($this->failures-- > 0) {
+                    throw new \RuntimeException($this->error);
+                }
+            }
+        };
     }
 
     private function envelope(string $endpoint, string $body, string $eventId, ?string $time = null): InboundWebhookEnvelope

@@ -55,8 +55,12 @@ final class InboundWebhookReceiver
     /** Whether this worker has said that its replay store is not shared. */
     private static bool $warnedNotShared = false;
 
-    /** The start of the last error of a delivery whose replay check failed: its retry makes the claim. */
-    private const REPLAY_CHECK_FAILED = 'replay check failed: ';
+    /**
+     * How long a delivery's owner key is kept: twice the claim's window, so a
+     * store that forgets keys by itself (Redis) never forgets the owner key
+     * while the claim it explains is still there.
+     */
+    private const REPLAY_OWNER_SECONDS = 1200;
 
     public function receive(InboundWebhookEnvelope $envelope, ?WebhookInboundProcessorInterface $processor = null): InboundDelivery
     {
@@ -146,21 +150,25 @@ final class InboundWebhookReceiver
             return $delivery;
         }
 
-        // 5b. The same signed bytes under another event id. Asked for a row
-        // just stored: an exact repeat under the same id matches its original
-        // above and is handled there (a failed one is processed again), and a
-        // request that died before this point claimed nothing. Asked again for
-        // a row whose own check failed, as that one never made its claim.
-        if ($verificationResult->verified
-            && ($delivery->getId() === $id || self::replayCheckFailed($delivery))) {
+        // 5b. The same signed bytes under another event id. Asked for every
+        // verified arrival that is not a duplicate above, a row handed back to
+        // be processed again as well as one just stored: the retry of a failed
+        // delivery, signed again with a new timestamp, is new signed bytes,
+        // and unclaimed they were processed once more under every other event
+        // id. A delivery that loses the claim to its own earlier attempt (an
+        // exact resend of a failure, or a worker that died after claiming) is
+        // told from another delivery by its owner key, not by anything in the
+        // row: the row's last error is also written by the processor and by
+        // the inbox when it takes an abandoned row.
+        if ($verificationResult->verified) {
             try {
-                $replay = $this->isReplay($endpoint->getEndpointKey(), $envelope);
+                $replay = $this->isReplay($endpoint->getEndpointKey(), $envelope, $delivery->getId());
             } catch (\Throwable $e) {
                 // The row is stored already. Left Received, every retry would
                 // be its duplicate and the delivery lost; Failed, the retry is
-                // processed and makes the claim this one could not (review,
+                // processed, and it claims as every arrival does (review,
                 // semitexa-webhooks#42).
-                $this->inboundService->markFailed($delivery, self::REPLAY_CHECK_FAILED . $e->getMessage());
+                $this->inboundService->markFailed($delivery, $e->getMessage());
 
                 throw $e;
             }
@@ -292,8 +300,21 @@ final class InboundWebhookReceiver
         return null;
     }
 
-    /** Whether these exact signed bytes were received at this endpoint within the window. */
-    private function isReplay(string $endpointKey, InboundWebhookEnvelope $envelope): bool
+    /**
+     * Whether these exact signed bytes were received at this endpoint within
+     * the window by another delivery. Two keys, in this order:
+     *
+     *  1. the owner key, of the bytes and this delivery: whether it was there
+     *     already says that an earlier attempt of this delivery came this far
+     *     with these bytes;
+     *  2. the claim, of the bytes alone: one winner.
+     *
+     * A lost claim with the owner key already there is this delivery's own
+     * claim, and it goes on; with the owner key new, the bytes are another
+     * delivery's. The owner key is written first, so a worker that dies or a
+     * store that fails anywhere after it leaves the retry able to tell.
+     */
+    private function isReplay(string $endpointKey, InboundWebhookEnvelope $envelope, string $deliveryId): bool
     {
         if (!isset($this->replayStore)) {
             return false;
@@ -315,24 +336,19 @@ final class InboundWebhookReceiver
             }
         }
 
-        return !$this->replayStore->markIfFirstSeen(
-            // One hash of the endpoint and the signed bytes, 79 characters. The
-            // endpoint key may be 191 itself, and the database store's column
-            // cuts a longer key, so every request at a long endpoint shared one
-            // key and all but the first were taken for replays.
-            'inbound-signed:' . hash('sha256', $endpointKey . "\n" . $timestamp . '.' . $envelope->rawBody),
-            self::REPLAY_WINDOW_SECONDS,
-        );
-    }
+        // One hash of the endpoint and the signed bytes: with its prefix a key
+        // is 79 characters at most. The endpoint key may be 191 itself, and the
+        // database store's column cuts a longer key, so every request at a long
+        // endpoint shared one key and all but the first were taken for replays.
+        $signed = hash('sha256', $endpointKey . "\n" . $timestamp . '.' . $envelope->rawBody);
 
-    /**
-     * A row handed back whose replay check failed. The inbox claims a failed
-     * row back to received before it returns it, and keeps its last error, so
-     * the mark is what tells (Fable's review, semitexa-webhooks#42).
-     */
-    private static function replayCheckFailed(InboundDelivery $delivery): bool
-    {
-        return str_starts_with((string) $delivery->getLastError(), self::REPLAY_CHECK_FAILED);
+        $ownerIsNew = $this->replayStore->markIfFirstSeen(
+            'inbound-owner:' . hash('sha256', $signed . "\n" . $deliveryId),
+            self::REPLAY_OWNER_SECONDS,
+        );
+        $claimed = $this->replayStore->markIfFirstSeen('inbound-signed:' . $signed, self::REPLAY_WINDOW_SECONDS);
+
+        return !$claimed && $ownerIsNew;
     }
 
     private static function warnNotShared(string $store): void
