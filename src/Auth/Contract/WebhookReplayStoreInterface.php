@@ -53,9 +53,21 @@ interface WebhookReplayStoreInterface
      * @param int|null $ttlSeconds Replay-window TTL. When provided, the key
      *                             is forgotten after this many seconds and a
      *                             later identical event-id can be processed
-     *                             as a fresh delivery; the caller picks
-     *                             it to outlive its signature window (the
-     *                             inbox passes InboundWebhookReceiver's
+     *                             as a fresh delivery. A caller that
+     *                             claims signed bytes picks it to outlive
+     *                             every moment a worker still accepts them:
+     *                             the signature's 300 seconds of drift each
+     *                             way, plus a margin for clocks that
+     *                             disagree, plus one boundary second (a
+     *                             drift of exactly 300 s still verifies).
+     *                             The margin covers, with Redis, the
+     *                             claiming worker's clock ahead of an
+     *                             accepting worker's (Redis only counts the
+     *                             TTL down); with the database store, the
+     *                             cleanup's clock ahead of an accepting
+     *                             worker's. The inbox passes 661: 600, a
+     *                             60-second margin and the boundary second
+     *                             (InboundWebhookReceiver's private
      *                             REPLAY_WINDOW_SECONDS). null = remember
      *                             forever for the lifetime of this store.
      *                             In-memory store honors expiry; Redis uses
