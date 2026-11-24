@@ -30,6 +30,11 @@ final class OutboundTargetGuardTest extends TestCase
         yield '6to4 metadata' => ['http://[2002:a9fe:a9fe::1]/'];
         yield 'site-local' => ['http://[fec0::1]/'];
         yield '6to4 relay' => ['http://192.88.99.1/'];
+        yield 'azure platform address' => ['http://168.63.129.16/machine?comp=goalstate'];
+        yield 'nat64 azure platform address' => ['http://[64:ff9b::a83f:8110]/'];
+        yield 'ipv4-translated loopback' => ['http://[::ffff:0:7f00:1]/hook'];
+        yield 'ipv4-translated metadata' => ['http://[::ffff:0:a9fe:a9fe]/'];
+        yield 'ipv4-translated private' => ['http://[0:0:0:0:ffff:0:a00:5]/hook'];
     }
 
     /**
@@ -94,6 +99,24 @@ final class OutboundTargetGuardTest extends TestCase
     {
         self::assertFalse(OutboundTargetGuard::isPublic('::7f00:1'), 'embeds 127.0.0.1');
         self::assertTrue(OutboundTargetGuard::isPublic('::5db8:d822'), 'embeds public 93.184.216.34');
+    }
+
+    /** SIIT's IPv4-translated form (RFC 2765) is judged as NAT64 and 6to4 are: by the IPv4 address it carries. */
+    #[Test]
+    public function an_ipv4_translated_address_is_judged_by_its_embedded_address(): void
+    {
+        self::assertFalse(OutboundTargetGuard::isPublic('::ffff:0:7f00:1'), 'embeds 127.0.0.1');
+        self::assertFalse(OutboundTargetGuard::isPublic('::ffff:0:a83f:8110'), 'embeds Azure\'s 168.63.129.16');
+        self::assertTrue(OutboundTargetGuard::isPublic('::ffff:0:5db8:d822'), 'embeds public 93.184.216.34');
+    }
+
+    /** Azure's platform address alone: its neighbours are ordinary public addresses. */
+    #[Test]
+    public function only_the_azure_platform_address_itself_is_refused(): void
+    {
+        self::assertFalse(OutboundTargetGuard::isPublic('168.63.129.16'));
+        self::assertTrue(OutboundTargetGuard::isPublic('168.63.129.15'));
+        self::assertTrue(OutboundTargetGuard::isPublic('168.63.129.17'));
     }
 
     #[Test]
