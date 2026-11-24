@@ -114,8 +114,11 @@ final class RedisWebhookReplayStore implements WebhookReplayStoreInterface, Owne
             }
 
             // Expired between the two commands: null, not this owner's, so
-            // false. It cannot meet a verified request: the key outlives the
-            // window in which its bytes verify.
+            // false. It cannot meet a verified request while the clocks
+            // agree: the receiver's TTL is the window in which the bytes
+            // verify and a clock margin on top, counted by Redis's clock
+            // (InboundWebhookReceiver::REPLAY_CLOCK_MARGIN_SECONDS), so the
+            // key outlives that window on a worker within the margin.
             return $redis->get($key) === $owner;
         });
     }
