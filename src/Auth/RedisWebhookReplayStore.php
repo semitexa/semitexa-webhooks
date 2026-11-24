@@ -20,8 +20,8 @@ use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
  *
  * TTL contract:
  *   When $ttlSeconds is provided, Redis sets EX automatically. The key
- *   expires server-side after the replay window, mirroring the
- *   AsWebhookReceiver::$replayWindowSeconds intent. When $ttlSeconds is
+ *   expires server-side after the caller's replay window (the inbox passes
+ *   InboundWebhookReceiver::REPLAY_WINDOW_SECONDS). When $ttlSeconds is
  *   null, this implementation defaults to a very long expiry (1 year)
  *   rather than no expiry — Redis SET NX with no EX would persist forever
  *   and accumulate keys unbounded over the worker lifetime, which is a

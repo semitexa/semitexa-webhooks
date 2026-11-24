@@ -53,10 +53,11 @@ interface WebhookReplayStoreInterface
      * @param int|null $ttlSeconds Replay-window TTL. When provided, the key
      *                             is forgotten after this many seconds and a
      *                             later identical event-id can be processed
-     *                             as a fresh delivery (matches the
-     *                             AsWebhookReceiver::$replayWindowSeconds
-     *                             contract). null = remember forever for the
-     *                             lifetime of this store.
+     *                             as a fresh delivery; the caller picks
+     *                             it to outlive its signature window (the
+     *                             inbox passes InboundWebhookReceiver's
+     *                             REPLAY_WINDOW_SECONDS). null = remember
+     *                             forever for the lifetime of this store.
      *                             In-memory store honors expiry; Redis uses
      *                             SET NX EX. DB-backed implementations can
      *                             store expires_at and either ignore expired
