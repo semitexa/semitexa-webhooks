@@ -22,10 +22,12 @@ use Attribute;
  *   secretRef            — string accepted by the WebhookSignatureVerifier
  *                          ("env:VAR_NAME" reads an env var; bare value is a
  *                          literal, dev/test only)
- *   replayWindowSeconds  — passed to the verifier via WebhookVerificationInput;
- *                          today the package uses a class-level constant of 300
- *                          seconds. Carrying the value here makes future
- *                          per-receiver tolerance changes one attribute edit.
+ *   replayWindowSeconds  — carried, not read: nothing passes it on, and
+ *                          WebhookVerificationInput has no such field. The
+ *                          signature window is the verifier's fixed 300
+ *                          seconds either side, and the inbox claims signed
+ *                          bytes for that window plus a clock margin
+ *                          (InboundWebhookReceiver::REPLAY_WINDOW_SECONDS).
  *   verificationMode     — accepted by the existing verifier (null = no
  *                          verification; any non-empty string = verify). The
  *                          default 'hmac-sha256' matches the only verifier
