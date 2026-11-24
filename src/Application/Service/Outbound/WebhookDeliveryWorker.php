@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Webhooks\Application\Service\Outbound;
 
+use Semitexa\Webhooks\Configuration\WebhookConfig;
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\WorkerState;
@@ -61,6 +62,9 @@ final class WebhookDeliveryWorker
 
     #[InjectAsReadonly]
     protected BackoffCalculator $backoffCalculator;
+
+    #[InjectAsReadonly]
+    protected WebhookConfig $config;
 
     public function setOutput(?OutputInterface $output): void
     {
@@ -183,6 +187,9 @@ final class WebhookDeliveryWorker
             $delivery->getAttemptCount(),
             $delivery->getInitialBackoffSeconds(),
             $delivery->getMaxBackoffSeconds(),
+            // WEBHOOK_BACKOFF_MULTIPLIER: WebhookConfig read it, but nothing
+            // passed it on, so every delivery's backoff grew x2 whatever it said.
+            $this->config->getDefaultBackoffMultiplier(),
         );
         $finalized = $this->outboxRepo->markRetryScheduledIfOwned(
             $delivery->getId(),
