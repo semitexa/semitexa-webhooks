@@ -72,6 +72,8 @@ final class RedisWebhookReplayStoreTest extends TestCase
 
         self::assertTrue($store->markIfFirstSeen($this->k('ownerless'), 600));
         self::assertFalse($store->claimFor($this->k('ownerless'), 'delivery-a', 600), 'a key claimed with no owner is nobody\'s');
+        // An owner named like the ownerless marker does not take it (review, semitexa-webhooks#43).
+        self::assertFalse($store->claimFor($this->k('ownerless'), '1', 600), 'the marker \'1\' is nobody\'s, an owner named 1 included');
     }
 
     #[Test]

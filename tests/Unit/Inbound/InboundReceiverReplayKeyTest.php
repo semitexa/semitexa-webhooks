@@ -260,6 +260,27 @@ final class InboundReceiverReplayKeyTest extends TestCase
         self::assertSame(1, $processor->calls);
     }
 
+    /** The order CodeRabbit asked for: the copy's claim fails first, the genuine delivery claims, the copy retries. */
+    #[Test]
+    public function a_copy_whose_claim_failed_before_the_genuine_claim_is_a_replay_on_its_retry(): void
+    {
+        $receiver = $this->receiver('partner', new OwnedFaultyReplayStore(failOn: 1, afterWrite: false), new ReclaimingInbox());
+        $processor = $this->processor();
+        $copy = $this->envelope('partner', '{"refund":42}', 'evt-2');
+
+        try {
+            $receiver->receive($copy, $processor);
+            self::fail('the replay store failed and the receiver said nothing');
+        } catch (\RuntimeException $e) {
+            self::assertSame('replay store is down', $e->getMessage());
+        }
+
+        $genuine = $this->envelope('partner', '{"refund":42}', 'evt-1', time: (string) $this->firstTime);
+        self::assertSame(InboundStatus::Processed, $receiver->receive($genuine, $processor)->getStatus(), 'the genuine delivery claims');
+        self::assertSame(InboundStatus::DuplicateIgnored, $receiver->receive($copy, $processor)->getStatus(), 'the claim names the genuine delivery');
+        self::assertSame(1, $processor->calls);
+    }
+
     /** The other side of it: a winner whose answer was lost is not dropped, and its claim holds. */
     #[Test]
     public function a_winner_that_lost_its_claim_reply_is_processed_on_retry_by_the_claim_that_names_it(): void

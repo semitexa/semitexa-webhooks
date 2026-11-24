@@ -50,6 +50,9 @@ use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
  */
 final class RedisWebhookReplayStore implements WebhookReplayStoreInterface, OwnedClaimStoreInterface
 {
+    /** What an owned claim's value starts with, so the ownerless marker '1' is never an owner. */
+    private const OWNED_VALUE_PREFIX = 'owner:';
+
     /**
      * Default expiry for null-TTL calls. 1 year — long enough to cover any
      * legitimate replay window, short enough to prevent unbounded growth
@@ -95,11 +98,14 @@ final class RedisWebhookReplayStore implements WebhookReplayStoreInterface, Owne
     /**
      * The claim with its owner as the key's value: SET NX EX writes both at
      * once, and when another call was first, the value says whose the key is.
-     * A key set by markIfFirstSeen() holds '1' and is nobody's.
+     * A key set by markIfFirstSeen() holds '1' and is nobody's; an owned
+     * value carries a prefix, so an owner named '1' does not take that
+     * marker for its own (review, semitexa-webhooks#43).
      */
     public function claimFor(string $key, string $owner, ?int $ttlSeconds = null): bool
     {
         $ttl = max(1, $ttlSeconds ?? self::DEFAULT_TTL_SECONDS);
+        $owner = self::OWNED_VALUE_PREFIX . $owner;
 
         return $this->pool->withConnection(static function ($redis) use ($key, $owner, $ttl): bool {
             $reply = $redis->set($key, $owner, 'EX', $ttl, 'NX');
