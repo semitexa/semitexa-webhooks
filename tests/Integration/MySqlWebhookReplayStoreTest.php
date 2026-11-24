@@ -63,6 +63,7 @@ final class MySqlWebhookReplayStoreTest extends TestCase
                 replay_key VARCHAR(191) NOT NULL,
                 first_seen_at DATETIME NOT NULL,
                 expires_at DATETIME NULL,
+                owner VARCHAR(64) NULL,
                 PRIMARY KEY (replay_key),
                 INDEX idx_expires_at (expires_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
@@ -73,6 +74,33 @@ final class MySqlWebhookReplayStoreTest extends TestCase
     // ------------------------------------------------------------------
     //  Atomic claim — primary contract
     // ------------------------------------------------------------------
+
+    #[Test]
+    public function claimFor_is_won_once_and_again_only_by_its_owner(): void
+    {
+        self::assertTrue($this->store->claimFor('owned-key', 'delivery-a', 600));
+        self::assertTrue($this->store->claimFor('owned-key', 'delivery-a', 600), 'its owner claims it again');
+        self::assertFalse($this->store->claimFor('owned-key', 'delivery-b', 600), 'another owner does not');
+
+        self::assertTrue($this->store->markIfFirstSeen('ownerless-key', 600));
+        self::assertFalse($this->store->claimFor('ownerless-key', 'delivery-a', 600), 'a key claimed with no owner is nobody\'s');
+    }
+
+    #[Test]
+    public function claimFor_on_a_table_with_no_owner_column_is_unavailable_not_broken(): void
+    {
+        $this->orm->getAdapter()->execute(sprintf('ALTER TABLE `%s` DROP COLUMN owner', MySqlWebhookReplayStore::TABLE));
+
+        try {
+            $this->store->claimFor('owned-key', 'delivery-a', 600);
+            self::fail('a claim with no owner column to hold its owner passed');
+        } catch (\Semitexa\Webhooks\Auth\Contract\OwnedClaimUnavailableException $e) {
+            self::assertStringContainsString('orm:sync', $e->getMessage());
+        } finally {
+            // A later test in the run gets the default store from the container.
+            $this->resetTable();
+        }
+    }
 
     #[Test]
     public function first_markIfFirstSeen_returns_true(): void

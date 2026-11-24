@@ -8,6 +8,7 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Webhooks\Auth\Contract\ExpiringWebhookReplayStoreInterface;
+use Semitexa\Webhooks\Auth\Contract\OwnedClaimStoreInterface;
 use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
 
 /**
@@ -26,7 +27,7 @@ use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
  * implementation from one of its own modules, which wins over a package.
  */
 #[SatisfiesServiceContract(of: WebhookReplayStoreInterface::class)]
-final class DatabaseWebhookReplayStore implements ExpiringWebhookReplayStoreInterface
+final class DatabaseWebhookReplayStore implements ExpiringWebhookReplayStoreInterface, OwnedClaimStoreInterface
 {
     #[InjectAsReadonly]
     protected OrmManager $orm;
@@ -44,6 +45,11 @@ final class DatabaseWebhookReplayStore implements ExpiringWebhookReplayStoreInte
     public function markIfFirstSeen(string $key, ?int $ttlSeconds = null): bool
     {
         return $this->store()->markIfFirstSeen($key, $ttlSeconds);
+    }
+
+    public function claimFor(string $key, string $owner, ?int $ttlSeconds = null): bool
+    {
+        return $this->store()->claimFor($key, $owner, $ttlSeconds);
     }
 
     public function clear(): void

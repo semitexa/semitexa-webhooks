@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\Webhooks\Auth;
 
 use Semitexa\Core\Redis\RedisConnectionPool;
+use Semitexa\Webhooks\Auth\Contract\OwnedClaimStoreInterface;
 use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
 
 /**
@@ -47,8 +48,11 @@ use Semitexa\Webhooks\Auth\Contract\WebhookReplayStoreInterface;
  *   propagate as exceptions and the pool transparently swaps in a fresh
  *   client.
  */
-final class RedisWebhookReplayStore implements WebhookReplayStoreInterface
+final class RedisWebhookReplayStore implements WebhookReplayStoreInterface, OwnedClaimStoreInterface
 {
+    /** What an owned claim's value starts with, so the ownerless marker '1' is never an owner. */
+    private const OWNED_VALUE_PREFIX = 'owner:';
+
     /**
      * Default expiry for null-TTL calls. 1 year — long enough to cover any
      * legitimate replay window, short enough to prevent unbounded growth
@@ -89,6 +93,31 @@ final class RedisWebhookReplayStore implements WebhookReplayStoreInterface
         // Predis returns the Redis status reply 'OK' (or a Status object whose
         // string cast is 'OK') on success; null when NX prevented the set.
         return $reply !== null && (string) $reply === 'OK';
+    }
+
+    /**
+     * The claim with its owner as the key's value: SET NX EX writes both at
+     * once, and when another call was first, the value says whose the key is.
+     * A key set by markIfFirstSeen() holds '1' and is nobody's; an owned
+     * value carries a prefix, so an owner named '1' does not take that
+     * marker for its own (review, semitexa-webhooks#43).
+     */
+    public function claimFor(string $key, string $owner, ?int $ttlSeconds = null): bool
+    {
+        $ttl = max(1, $ttlSeconds ?? self::DEFAULT_TTL_SECONDS);
+        $owner = self::OWNED_VALUE_PREFIX . $owner;
+
+        return $this->pool->withConnection(static function ($redis) use ($key, $owner, $ttl): bool {
+            $reply = $redis->set($key, $owner, 'EX', $ttl, 'NX');
+            if ($reply !== null && (string) $reply === 'OK') {
+                return true;
+            }
+
+            // Expired between the two commands: null, not this owner's, so
+            // false. It cannot meet a verified request: the key outlives the
+            // window in which its bytes verify.
+            return $redis->get($key) === $owner;
+        });
     }
 
     /**
