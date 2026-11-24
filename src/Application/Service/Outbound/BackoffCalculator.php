@@ -19,7 +19,16 @@ final class BackoffCalculator
             return $initialBackoffSeconds;
         }
 
-        $delay = (int) ($initialBackoffSeconds * ($multiplier ** ($attemptCount - 1)));
+        // The growth is a float, and past about attempt 58 (30 s, x2) it exceeds
+        // PHP_INT_MAX: the cast to int is then undefined (a negative number or 0).
+        // A negative delay made random_int() below throw in the delivery worker,
+        // and 0 meant a retry every second. So the cap comes before the cast, and
+        // a float at or past it is never cast. The cap is at least 1 s: an endpoint's
+        // max_backoff_seconds is a signed column nothing validates, and a negative
+        // cap would make the delay, and with it the jitter range, negative.
+        $maxBackoffSeconds = max(1, $maxBackoffSeconds);
+        $growth = $initialBackoffSeconds * ($multiplier ** ($attemptCount - 1));
+        $delay = $growth >= $maxBackoffSeconds ? $maxBackoffSeconds : (int) max(0.0, $growth);
 
         // Add jitter: ±25%
         $jitter = (int) ($delay * 0.25);
