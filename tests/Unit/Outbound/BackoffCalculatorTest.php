@@ -49,6 +49,40 @@ final class BackoffCalculatorTest extends TestCase
         self::assertLessThanOrEqual(3600, $delay);
     }
 
+    /**
+     * An endpoint with max_attempts of 60 or more reached attempts whose growth
+     * (30 s x 2^(n-1)) exceeds PHP_INT_MAX. The cast gave a negative delay at
+     * attempt 60, and random_int() threw in the delivery worker; at 70 it gave
+     * 0, and the delivery was retried every second.
+     */
+    public function testLargeAttemptCountsStayAtTheCapWithItsJitter(): void
+    {
+        foreach ([58, 60, 64, 70, 1000] as $attempt) {
+            $delay = $this->calculator->calculate($attempt);
+
+            self::assertGreaterThanOrEqual(2700, $delay, "attempt {$attempt}: the 3600 s cap less its 25% jitter");
+            self::assertLessThanOrEqual(3600, $delay, "attempt {$attempt}");
+        }
+    }
+
+    public function testNoAttemptCountThrowsOrLeavesTheRange(): void
+    {
+        for ($attempt = 1; $attempt <= 200; $attempt++) {
+            $delay = $this->calculator->calculate($attempt);
+
+            self::assertGreaterThanOrEqual(1, $delay, "attempt {$attempt}");
+            self::assertLessThanOrEqual(3600, $delay, "attempt {$attempt}");
+        }
+    }
+
+    /** max_backoff_seconds is a signed column nothing validates; a cap of 0 or below is 1 s, never a throw. */
+    public function testACapOfZeroOrBelowIsOneSecond(): void
+    {
+        self::assertSame(1, $this->calculator->calculate(5, 30, 0));
+        self::assertSame(1, $this->calculator->calculate(5, 30, -100));
+        self::assertSame(1, $this->calculator->calculate(70, 30, -100));
+    }
+
     public function testMinimumDelayIsOne(): void
     {
         $delay = $this->calculator->calculate(0, 1, 3600, 1.0);
