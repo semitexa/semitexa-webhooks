@@ -65,10 +65,10 @@ final class InboundReceiverReplayClaimTtlTest extends TestCase
 
         self::assertCount(1, $store->claims, 'one claim, with its owner');
         self::assertStringStartsWith('inbound-signed:', $store->claims[0]['key']);
-        self::assertGreaterThanOrEqual(
+        self::assertGreaterThan(
             self::signatureWindow() + self::CLOCK_MARGIN_SECONDS,
             $store->claims[0]['ttl'],
-            'the claim covers the window the bytes verify in, and clocks that disagree',
+            'the claim covers the window the bytes verify in, clocks that disagree, and the boundary second: the verifier accepts a drift of exactly 300 s and the database cleanup deletes at expires_at',
         );
     }
 
@@ -85,10 +85,10 @@ final class InboundReceiverReplayClaimTtlTest extends TestCase
             $ttl[strstr($claim['key'], ':', true)] = $claim['ttl'];
         }
         self::assertSame(['inbound-owner', 'inbound-signed'], array_keys($ttl), 'the owner key, then the claim');
-        self::assertGreaterThanOrEqual(
+        self::assertGreaterThan(
             self::signatureWindow() + self::CLOCK_MARGIN_SECONDS,
             $ttl['inbound-signed'],
-            'the claim covers the window the bytes verify in, and clocks that disagree',
+            'the claim covers the window the bytes verify in, clocks that disagree, and the boundary second',
         );
         self::assertGreaterThan($ttl['inbound-signed'], $ttl['inbound-owner'], 'the owner key is there for as long as the claim it explains');
     }

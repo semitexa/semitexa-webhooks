@@ -80,9 +80,13 @@ final class InboundWebhookReceiver
 
     /**
      * How long a delivery's signed bytes stay claimed: the signature's window
-     * both ways, a request is valid that long, plus the clock margin (660 s).
+     * both ways, a request is valid that long, plus the clock margin, plus
+     * the boundary second (661 s). The verifier accepts a drift of exactly
+     * 300 s and the database store's cleanup deletes a claim once
+     * expires_at <= now, so a claim of exactly window + margin left one
+     * second open at the margin's edge (review, semitexa-webhooks#45).
      */
-    private const REPLAY_WINDOW_SECONDS = 2 * self::SIGNATURE_DRIFT_SECONDS + self::REPLAY_CLOCK_MARGIN_SECONDS;
+    private const REPLAY_WINDOW_SECONDS = 2 * self::SIGNATURE_DRIFT_SECONDS + self::REPLAY_CLOCK_MARGIN_SECONDS + 1;
 
     /** Whether this worker has said that its replay store is not shared. */
     private static bool $warnedNotShared = false;
@@ -92,7 +96,7 @@ final class InboundWebhookReceiver
 
     /**
      * How long a delivery's owner key is kept: twice the claim's time, margin
-     * included (1320 s), so a store that forgets keys by itself (Redis) never
+     * included (1322 s), so a store that forgets keys by itself (Redis) never
      * forgets the owner key while the claim it explains is still there.
      */
     private const REPLAY_OWNER_SECONDS = 2 * self::REPLAY_WINDOW_SECONDS;
