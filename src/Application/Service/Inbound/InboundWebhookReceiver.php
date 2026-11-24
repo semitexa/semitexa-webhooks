@@ -51,8 +51,42 @@ final class InboundWebhookReceiver
 
     private const REJECTED_BODY_BYTES = 4096;
 
-    /** The signature's ±300 s window, both ways: a request is valid that long. */
-    private const REPLAY_WINDOW_SECONDS = 600;
+    /**
+     * How far a signed timestamp may be from this worker's clock, either way.
+     * A copy of HmacSha256SignatureVerifier::MAX_TIMESTAMP_DRIFT_SECONDS, kept
+     * here by hand: the verifier is injected by its contract, which names no
+     * window. Change both together (InboundReceiverReplayClaimTtlTest holds
+     * them equal).
+     */
+    private const SIGNATURE_DRIFT_SECONDS = 300;
+
+    /**
+     * What the claim is kept beyond the signature's window, for clocks that
+     * disagree. Each worker accepts a signature by its own clock, and a sender
+     * may run 300 s ahead. A claim of the bare window then ends before every
+     * worker stops accepting the bytes:
+     * - with Redis, by as much as the claiming worker's clock runs ahead of
+     *   the accepting worker's (Redis only counts the TTL down);
+     * - with the database store, by as much as the cleanup's clock runs ahead
+     *   of the accepting worker's (the claiming worker's own offset cancels:
+     *   it bounds when the claim was made and also wrote expires_at).
+     * A copy under another event id was processed in that gap (review,
+     * semitexa-docs#185).
+     *
+     * The margin covers those disagreements up to this far. Beyond it the
+     * same gap opens: keep the clocks in sync (NTP).
+     */
+    private const REPLAY_CLOCK_MARGIN_SECONDS = 60;
+
+    /**
+     * How long a delivery's signed bytes stay claimed: the signature's window
+     * both ways, a request is valid that long, plus the clock margin, plus
+     * the boundary second (661 s). The verifier accepts a drift of exactly
+     * 300 s and the database store's cleanup deletes a claim once
+     * expires_at <= now, so a claim of exactly window + margin left one
+     * second open at the margin's edge (review, semitexa-webhooks#45).
+     */
+    private const REPLAY_WINDOW_SECONDS = 2 * self::SIGNATURE_DRIFT_SECONDS + self::REPLAY_CLOCK_MARGIN_SECONDS + 1;
 
     /** Whether this worker has said that its replay store is not shared. */
     private static bool $warnedNotShared = false;
@@ -61,11 +95,11 @@ final class InboundWebhookReceiver
     private static bool $warnedNoOwnedClaim = false;
 
     /**
-     * How long a delivery's owner key is kept: twice the claim's window, so a
-     * store that forgets keys by itself (Redis) never forgets the owner key
-     * while the claim it explains is still there.
+     * How long a delivery's owner key is kept: twice the claim's time, margin
+     * included (1322 s), so a store that forgets keys by itself (Redis) never
+     * forgets the owner key while the claim it explains is still there.
      */
-    private const REPLAY_OWNER_SECONDS = 1200;
+    private const REPLAY_OWNER_SECONDS = 2 * self::REPLAY_WINDOW_SECONDS;
 
     public function receive(InboundWebhookEnvelope $envelope, ?WebhookInboundProcessorInterface $processor = null): InboundDelivery
     {

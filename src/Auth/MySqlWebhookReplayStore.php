@@ -152,9 +152,14 @@ final class MySqlWebhookReplayStore implements ExpiringWebhookReplayStoreInterfa
 
         // No row: cleanup deleted an expired key between the two statements.
         // That is not this owner's claim, so false, which the receiver takes
-        // for another delivery's bytes. It cannot meet a verified request:
-        // the key lives 600 s and the signature verifies 300 s either way,
-        // so bytes whose key expired no longer verify.
+        // for another delivery's bytes. It cannot meet a verified request
+        // while the clocks agree: the receiver keeps the key for the 600 s
+        // in which the signature verifies (300 s either way) and a clock
+        // margin on top (InboundWebhookReceiver::REPLAY_CLOCK_MARGIN_SECONDS),
+        // so bytes whose key expired no longer verify on a worker whose
+        // clock is within that margin of the cleanup's. The claiming
+        // worker's own offset cancels: it bounds when the claim was made
+        // and also wrote expires_at.
         return $row !== null && ($row['owner'] ?? null) === $owner;
     }
 
