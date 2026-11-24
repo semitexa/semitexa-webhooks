@@ -157,6 +157,7 @@ final class BlockedTargetDeliveryTest extends TestCase
         OutboundDeliveryRepositoryInterface $outbox,
         TransportResult $result,
         ?WebhookAttemptRepositoryInterface $attempts = null,
+        ?WebhookConfig $config = null,
     ): WebhookDeliveryWorker {
         $claim = new OutboxClaimService();
         (new ReflectionProperty(OutboxClaimService::class, 'outboxRepo'))->setValue($claim, $outbox);
@@ -178,6 +179,7 @@ final class BlockedTargetDeliveryTest extends TestCase
             'outboxRepo' => $outbox,
             'attemptRepo' => $attempts ?? $this->createStub(WebhookAttemptRepositoryInterface::class),
             'backoffCalculator' => new BackoffCalculator(),
+            'config' => $config ?? new WebhookConfig(),
         ] as $property => $value) {
             (new ReflectionProperty(WebhookDeliveryWorker::class, $property))->setValue($worker, $value);
         }
@@ -185,7 +187,35 @@ final class BlockedTargetDeliveryTest extends TestCase
         return $worker;
     }
 
-    private function delivery(int $attemptCount = 0): OutboundDelivery
+    /**
+     * WEBHOOK_BACKOFF_MULTIPLIER reached WebhookConfig and stopped there: the
+     * worker never passed it, so a retry always grew x2. Attempt 3 of a 10 s
+     * backoff at x3 is 10 * 3^2 = 90 s, give or take its 25% jitter; at x2 it
+     * was 40 s.
+     */
+    #[Test]
+    public function a_retry_grows_by_the_configured_multiplier(): void
+    {
+        $config = new WebhookConfig();
+        (new ReflectionProperty(WebhookConfig::class, 'defaultBackoffMultiplier'))->setValue($config, 3.0);
+        $scheduledIn = null;
+        $outbox = $this->createMock(OutboundDeliveryRepositoryInterface::class);
+        $outbox->method('claimAndLease')->willReturn($this->delivery(attemptCount: 3, initialBackoffSeconds: 10));
+        $outbox->expects(self::once())->method('markRetryScheduledIfOwned')
+            ->willReturnCallback(static function (string $id, string $worker, \DateTimeImmutable $at) use (&$scheduledIn): bool {
+                $scheduledIn = $at->getTimestamp() - time();
+
+                return true;
+            });
+
+        $this->worker($outbox, TransportResult::failure(null, 'cURL error (7)'), config: $config)->processOne('w1');
+
+        self::assertIsInt($scheduledIn);
+        self::assertGreaterThanOrEqual(66, $scheduledIn, 'x3: 90 s less its 25% jitter, a second of clock slack');
+        self::assertLessThanOrEqual(113, $scheduledIn, 'x3: 90 s plus its 25% jitter, a second of clock slack');
+    }
+
+    private function delivery(int $attemptCount = 0, int $initialBackoffSeconds = 30): OutboundDelivery
     {
         return new OutboundDelivery(
             id: 'd-1',
@@ -201,6 +231,7 @@ final class BlockedTargetDeliveryTest extends TestCase
             signedHeadersJson: null,
             nextAttemptAt: new \DateTimeImmutable(),
             attemptCount: $attemptCount,
+            initialBackoffSeconds: $initialBackoffSeconds,
         );
     }
 }
