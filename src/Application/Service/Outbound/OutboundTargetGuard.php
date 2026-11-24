@@ -10,10 +10,11 @@ namespace Semitexa\Webhooks\Application\Service\Outbound;
  *
  * A target URL is configuration, but it names where signed requests go: one
  * pointing at loopback, a private network or a cloud metadata address
- * (169.254.169.254) turns the delivery worker into a request forger inside
- * the perimeter. Every address the host resolves to must be public, and the
- * one returned is the one cURL connects to (CURLOPT_RESOLVE), so DNS cannot
- * answer differently between this check and the connect.
+ * (169.254.169.254, Azure's 168.63.129.16) turns the delivery worker into a
+ * request forger inside the perimeter. Every address the host resolves to
+ * must be public, and the one returned is the one cURL connects to
+ * (CURLOPT_RESOLVE), so DNS cannot answer differently between this check and
+ * the connect.
  *
  * Private targets stay possible on purpose — a receiver on the same network
  * in development — through WEBHOOK_ALLOW_PRIVATE_TARGETS.
@@ -113,11 +114,14 @@ final class OutboundTargetGuard
             if (substr($packed, 0, 6) === "\x00\x64\xff\x9b\x00\x01") {
                 return false;
             }
-            // NAT64 (64:ff9b::/96) and 6to4 (2002::/16) carry an IPv4 address
-            // a gateway connects to: 64:ff9b::a9fe:a9fe is 169.254.169.254.
-            // Judged by that address.
+            // NAT64 (64:ff9b::/96), 6to4 (2002::/16) and SIIT's IPv4-translated
+            // form (::ffff:0:0:0/96, RFC 2765) carry an IPv4 address a gateway
+            // connects to: 64:ff9b::a9fe:a9fe and ::ffff:0:a9fe:a9fe are
+            // 169.254.169.254. Judged by that address. The translated form
+            // passes the filter in hex although its dotted spelling does not.
             $embedded = match (true) {
                 substr($packed, 0, 12) === "\x00\x64\xff\x9b" . str_repeat("\0", 8) => substr($packed, 12, 4),
+                substr($packed, 0, 12) === str_repeat("\0", 8) . "\xff\xff\x00\x00" => substr($packed, 12, 4),
                 substr($packed, 0, 2) === "\x20\x02" => substr($packed, 2, 4),
                 default => null,
             };
@@ -134,6 +138,13 @@ final class OutboundTargetGuard
 
         // 192.88.99.0/24, the 6to4 relay anycast: never a receiver.
         if (strlen($packed) === 4 && substr($packed, 0, 3) === "\xC0\x58\x63") {
+            return false;
+        }
+
+        // 168.63.129.16, Azure's platform address (the WireServer and DNS),
+        // is public to the filter but answers every Azure VM from inside, as
+        // 169.254.169.254 does: never a receiver.
+        if ($packed === "\xA8\x3F\x81\x10") {
             return false;
         }
 
